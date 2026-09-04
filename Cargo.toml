@@ -1,0 +1,52 @@
+[package]
+name = "mirelay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Privacy-first file delivery CLI and self-hosted server"
+default-run = "mirelay"
+
+[features]
+default = []
+desktop = ["dep:adw", "dep:gtk"]
+
+[dependencies]
+adw = { package = "libadwaita", version = "0.7.2", optional = true }
+anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+fastrand = "2"
+futures-util = "0.3"
+fs2 = "0.4"
+gtk = { package = "gtk4", version = "0.9.7", optional = true }
+hex = "0.4"
+httpdate = "1"
+libc = "0.2"
+nix = { version = "0.30", default-features = false, features = ["process", "signal"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
+tokio-util = { version = "0.7", features = ["io"] }
+toml = "0.9"
+uuid = { version = "1", features = ["v4"] }
+
+[[bin]]
+name = "mirelay-desktop"
+path = "src/bin/mirelay-desktop.rs"
+required-features = ["desktop"]
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+httpmock = "0.8"
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

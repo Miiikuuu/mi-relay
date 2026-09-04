@@ -1,0 +1,69 @@
+use anyhow::{Result, bail};
+use serde::{Deserialize, Serialize};
+
+pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_HEADER: &str = "mirelay-protocol-version";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeliveryIndex<T> {
+    pub schema_version: u32,
+    #[serde(default)]
+    pub items: Vec<T>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeliveryDescriptor {
+    pub delivery_id: String,
+    pub original_name: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub media_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at_unix: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AcknowledgeRequest {
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProblemDetails {
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub type_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+}
+
+pub fn validate_delivery_id(id: &str) -> Result<()> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        bail!("delivery id must be 1-128 ASCII letters, digits, '-' or '_': {id:?}");
+    }
+    Ok(())
+}
+
+pub fn validate_sha256(sha256: &str) -> Result<()> {
+    if sha256.len() != 64
+        || sha256 != sha256.to_ascii_lowercase()
+        || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        bail!("SHA-256 must be 64 lowercase hexadecimal characters");
+    }
+    Ok(())
+}

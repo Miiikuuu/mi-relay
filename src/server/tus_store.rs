@@ -22,6 +22,7 @@ const MAX_UPLOAD_RECORD_BYTES: u64 = 32 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewUpload {
+    pub directory: Option<crate::directory::DirectoryVersion>,
     pub original_name: String,
     pub media_type: String,
     pub sha256: String,
@@ -67,6 +68,8 @@ impl std::error::Error for InvalidUploadContent {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UploadRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    directory: Option<crate::directory::DirectoryVersion>,
     version: u32,
     id: String,
     device_id: String,
@@ -86,6 +89,13 @@ impl ServerStore {
     }
 
     pub fn validate_new_upload(&self, upload: &NewUpload) -> Result<()> {
+        if let Some(directory) = &upload.directory {
+            directory.validate()?;
+            anyhow::ensure!(
+                directory.path.rsplit('/').next() == Some(upload.original_name.as_str()),
+                "Directory filename and path disagree."
+            );
+        }
         let delivery = Delivery {
             schema_version: MANIFEST_SCHEMA_VERSION,
             id: "00000000-0000-4000-8000-000000000000".to_owned(),
@@ -109,6 +119,9 @@ impl ServerStore {
     pub fn create_upload(&self, device_id: &str, upload: NewUpload) -> Result<UploadInfo> {
         validate_device_id(device_id)?;
         self.validate_new_upload(&upload)?;
+        if upload.directory.is_some() {
+            self.require_directory_receiver(device_id)?;
+        }
         let _upload_lock = lock_library(&self.uploads_dir)?;
 
         for _ in 0..16 {
@@ -140,6 +153,7 @@ impl ServerStore {
             sync_directory(&self.uploads_dir)?;
 
             let record = UploadRecord {
+                directory: upload.directory,
                 version: UPLOAD_RECORD_VERSION,
                 id,
                 device_id: device_id.to_owned(),
@@ -264,15 +278,19 @@ impl ServerStore {
             }
             .into());
         }
-        let delivery = self.enqueue_with_id(
+        let delivery = self.enqueue_directory_with_id(
             &record.device_id,
             &part_path,
             record.original_name.clone(),
             record.id.clone(),
             record.created_at_unix,
+            record.directory.as_ref(),
         )?;
         record.delivery_id = Some(delivery.id);
         self.write_upload_record(record)?;
+        if record.directory.is_some() {
+            self.garbage_collect_digest(&record.sha256)?;
+        }
 
         match fs::remove_file(&part_path) {
             Ok(()) => {
@@ -406,6 +424,7 @@ impl ServerStore {
             bail!("tus record offset exceeds its upload length");
         }
         let upload = NewUpload {
+            directory: record.directory.clone(),
             original_name: record.original_name.clone(),
             media_type: record.media_type.clone(),
             sha256: record.sha256.clone(),
@@ -484,6 +503,7 @@ mod tests {
 
     fn upload(bytes: &[u8]) -> NewUpload {
         NewUpload {
+            directory: None,
             original_name: "test.png".to_owned(),
             media_type: "image/png".to_owned(),
             sha256: hex::encode(Sha256::digest(bytes)),

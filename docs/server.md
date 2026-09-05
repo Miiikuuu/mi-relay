@@ -103,7 +103,12 @@ mirelay-server serve --listen 0.0.0.0:18080 --allow-public-http
 
 ## systemd 示例
 
-令牌文件 `/etc/mirelay/server.env` 应由运行用户读取并设置为 `0600`：
+独立部署所需的低权限服务单元、HTTPS 配置模板和验收脚本见
+[deploy/README.md](../deploy/README.md)。模板默认关闭 HTTP/3，避免与占用 UDP 443
+的 Hysteria 冲突；不要直接覆盖现有代理配置。
+
+令牌文件 `/etc/mirelay/server.env` 应由 root 持有并设置为 `0600`；系统级
+systemd 在切换到运行用户前读取 `EnvironmentFile`，服务用户无需直接读取该文件：
 
 ```ini
 MIRELAY_SERVER_TOKEN=replace-with-a-random-token

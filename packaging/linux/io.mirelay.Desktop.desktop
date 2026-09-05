@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=MiRelay
+Comment=Receive files from your devices through your own relay
+Exec=mirelay-desktop
+TryExec=mirelay-desktop
+Icon=io.mirelay.Desktop
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=files;sync;transfer;relay;
+StartupNotify=true
+StartupWMClass=io.mirelay.Desktop

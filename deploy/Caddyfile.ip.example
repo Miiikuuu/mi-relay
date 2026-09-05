@@ -1,0 +1,30 @@
+{
+	# Only TCP 443 is needed: TLS-ALPN handles issuance and renewal.
+	auto_https disable_redirects
+	servers {
+		# Leave UDP 443 to the existing Hysteria service.
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			read_body 5m
+			idle 2m
+		}
+	}
+	admin unix//run/mirelay-proxy/admin.sock
+	persist_config off
+	grace_period 30s
+}
+
+# Replace BOTH occurrences with your public IPv4 address assigned to this host.
+# First test with https://acme-staging-v02.api.letsencrypt.org/directory.
+# Staging certificates are NOT trusted and must never be used with real tokens.
+https://192.0.2.1 {
+	bind 192.0.2.1
+	tls {
+		issuer acme https://acme-v02.api.letsencrypt.org/directory {
+			profile shortlived
+			disable_http_challenge
+		}
+	}
+	reverse_proxy 127.0.0.1:8080
+}

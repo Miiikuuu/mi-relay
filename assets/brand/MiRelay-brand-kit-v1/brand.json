@@ -1,0 +1,26 @@
+{
+  "name": "MiRelay",
+  "creator": "MiiiKuuu",
+  "version": "1.0",
+  "selectedDesign": {
+    "wordmark": "wordmark/mirelay-wordmark.png",
+    "wordmarkVariant": "compact composition, lowered y tail",
+    "icon": "icons/mirelay-icon-original.png",
+    "iconVariant": "original sticker, three rising i shapes"
+  },
+  "format": {
+    "type": "raster",
+    "background": "white",
+    "transparent": false,
+    "editableVectorIncluded": false
+  },
+  "pngSizes": [16, 24, 32, 48, 64, 96, 128, 192, 256, 512, 1024],
+  "icoSizes": [16, 24, 32, 48, 64],
+  "suggestedUiPalette": {
+    "graphite": "#303530",
+    "sage": "#92A57D",
+    "white": "#FFFFFF",
+    "warmGray": "#D5D5D2"
+  },
+  "paletteNote": "Suggested UI colors; source raster contains slight tonal variation."
+}

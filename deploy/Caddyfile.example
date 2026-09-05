@@ -1,0 +1,21 @@
+{
+	# A separate Hysteria service may already own UDP 443. Do not enable h3.
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			read_body 5m
+			idle 2m
+		}
+	}
+	admin unix//run/mirelay-proxy/admin.sock
+	persist_config off
+	grace_period 30s
+}
+
+# Replace with a domain you control, pointing to this server, before starting.
+relay.example.com {
+	# Preserve tus methods, relative Location, offsets and upload metadata.
+	# Do not enable request/response body buffering or automatic PATCH retries.
+	reverse_proxy 127.0.0.1:8080
+}

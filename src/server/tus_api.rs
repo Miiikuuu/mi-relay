@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
-use axum::extract::{Path, Request, State};
+use axum::extract::{OriginalUri, Path, Request, State};
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE, LOCATION};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -14,7 +14,8 @@ use futures_util::TryStreamExt;
 use tokio::io::AsyncReadExt;
 use tokio_util::io::StreamReader;
 
-use super::api::{ApiError, ApiState, authorize_bearer};
+use super::api::{ApiError, ApiState};
+use super::folders::authorize_transfer;
 use super::tus_store::{AppendUploadOutcome, InvalidUploadContent, NewUpload, UploadInfo};
 
 const TUS_VERSION_VALUE: &str = "1.0.0";
@@ -50,9 +51,12 @@ async fn tus_options(State(state): State<ApiState>) -> Result<Response, TusError
 
 async fn create_upload(
     State(state): State<ApiState>,
+    OriginalUri(uri): OriginalUri,
     request: Request,
 ) -> Result<Response, TusError> {
-    authorize_bearer(&state, request.headers()).map_err(TusError::from)?;
+    let device_id = authorize_transfer(&state, request.headers(), &uri, "sender")
+        .await
+        .map_err(TusError::from)?;
     require_tus_version(request.headers())?;
     if request.headers().contains_key(&UPLOAD_DEFER_LENGTH) {
         return Err(TusError::bad_request(
@@ -83,6 +87,24 @@ async fn create_upload(
     }
 
     let upload = NewUpload {
+        directory: match (
+            metadata.get("relative_path"),
+            metadata.get("source_version"),
+        ) {
+            (None, None) => None,
+            (Some(path), Some(version)) => Some(crate::directory::DirectoryVersion {
+                path: path.clone(),
+                version: version.parse().map_err(|_| {
+                    TusError::bad_request("invalid_directory_version", "Invalid directory version.")
+                })?,
+            }),
+            _ => {
+                return Err(TusError::bad_request(
+                    "incomplete_directory_metadata",
+                    "Directory path and version must be supplied together.",
+                ));
+            }
+        },
         original_name: metadata
             .get("filename")
             .expect("required metadata was checked")
@@ -109,7 +131,6 @@ async fn create_upload(
             )
         })?;
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
     let info = run_tus_store("create tus upload", move || {
         store.create_upload(&device_id, upload)
     })
@@ -122,13 +143,16 @@ async fn create_upload(
 
 async fn head_upload(
     State(state): State<ApiState>,
-    Path(upload_id): Path<String>,
+    OriginalUri(uri): OriginalUri,
+    Path(parameters): Path<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response, TusError> {
-    authorize_bearer(&state, &headers).map_err(TusError::from)?;
+    let device_id = authorize_transfer(&state, &headers, &uri, "sender")
+        .await
+        .map_err(TusError::from)?;
+    let upload_id = parameters.get("upload_id").cloned().unwrap_or_default();
     require_tus_version(&headers)?;
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
     let info = run_tus_store("inspect tus upload", move || {
         store.get_upload(&device_id, &upload_id)
     })
@@ -139,19 +163,23 @@ async fn head_upload(
 
 async fn patch_upload(
     State(state): State<ApiState>,
-    Path(upload_id): Path<String>,
+    OriginalUri(uri): OriginalUri,
+    Path(parameters): Path<HashMap<String, String>>,
     request: Request,
 ) -> Result<Response, TusError> {
-    authorize_bearer(&state, request.headers()).map_err(TusError::from)?;
+    let device_id = authorize_transfer(&state, request.headers(), &uri, "sender")
+        .await
+        .map_err(TusError::from)?;
+    let upload_id = parameters.get("upload_id").cloned().unwrap_or_default();
     require_tus_version(request.headers())?;
     require_offset_content_type(request.headers())?;
     let expected_offset = required_u64_header(request.headers(), &UPLOAD_OFFSET, "upload_offset")?;
 
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
+    let queried_device = device_id.clone();
     let queried_id = upload_id.clone();
     let current = run_tus_store("inspect tus upload", move || {
-        store.get_upload(&device_id, &queried_id)
+        store.get_upload(&queried_device, &queried_id)
     })
     .await?
     .ok_or_else(TusError::not_found)?;
@@ -186,7 +214,6 @@ async fn patch_upload(
     let standard_file = temporary.into_std().await;
 
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
     let outcome = run_tus_store("append tus upload", move || {
         store.append_upload(
             &device_id,
@@ -230,8 +257,10 @@ fn parse_upload_metadata(headers: &HeaderMap) -> Result<BTreeMap<String, String>
                 "each Upload-Metadata entry must contain a key and base64 value",
             )
         })?;
-        if !matches!(key, "filename" | "media_type" | "sha256")
-            || encoded.is_empty()
+        if !matches!(
+            key,
+            "filename" | "media_type" | "sha256" | "relative_path" | "source_version"
+        ) || encoded.is_empty()
             || encoded.contains(char::is_whitespace)
         {
             return Err(TusError::bad_request(
@@ -280,16 +309,23 @@ fn parse_upload_metadata(headers: &HeaderMap) -> Result<BTreeMap<String, String>
 }
 
 fn canonical_metadata_header(metadata: &BTreeMap<String, String>) -> String {
-    ["filename", "media_type", "sha256"]
-        .into_iter()
-        .map(|key| {
-            format!(
-                "{key} {}",
-                STANDARD.encode(metadata.get(key).expect("required metadata was checked"))
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",")
+    [
+        "filename",
+        "media_type",
+        "sha256",
+        "relative_path",
+        "source_version",
+    ]
+    .into_iter()
+    .filter(|key| metadata.contains_key(*key))
+    .map(|key| {
+        format!(
+            "{key} {}",
+            STANDARD.encode(metadata.get(key).expect("required metadata was checked"))
+        )
+    })
+    .collect::<Vec<_>>()
+    .join(",")
 }
 
 fn require_tus_version(headers: &HeaderMap) -> Result<(), TusError> {
@@ -405,6 +441,17 @@ where
 {
     match tokio::task::spawn_blocking(task).await {
         Ok(Ok(value)) => Ok(value),
+        Ok(Err(error))
+            if error
+                .chain()
+                .any(|cause| cause.is::<super::directory::DirectoryConflict>()) =>
+        {
+            Err(TusError::new(
+                StatusCode::CONFLICT,
+                "directory_conflict",
+                "Initialize the receiver or refresh the conflicting directory version.",
+            ))
+        }
         Ok(Err(error))
             if error
                 .chain()

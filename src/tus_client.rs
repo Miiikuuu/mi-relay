@@ -65,6 +65,13 @@ struct UploadCli {
     #[arg(long, value_name = "NAME")]
     name: Option<String>,
 
+    /// Opt in to directory synchronization using a portable relative path.
+    #[arg(long, requires = "source_version")]
+    relative_path: Option<String>,
+    /// Monotonically increasing source version, allocated durably by the sender.
+    #[arg(long, requires = "relative_path")]
+    source_version: Option<u64>,
+
     /// Bytes sent in each tus PATCH.
     #[arg(
         long,
@@ -97,6 +104,8 @@ struct UploadState {
     size: u64,
     sha256: String,
     media_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    directory: Option<crate::directory::DirectoryVersion>,
 }
 
 struct TusClient {
@@ -127,6 +136,54 @@ impl fmt::Display for HttpStatusError {
 
 impl std::error::Error for HttpStatusError {}
 
+/// Shared sender API. Credentials are deliberately neither Debug nor Serialize.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadRequest {
+    pub file: PathBuf,
+    pub state_file: PathBuf,
+    pub server_url: String,
+    pub token: String,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub directory: Option<crate::directory::DirectoryVersion>,
+    pub chunk_size_bytes: u64,
+    pub max_chunks: Option<u64>,
+    pub allow_insecure_http: bool,
+    pub request_timeout_seconds: u64,
+    /// Mobile keeps the completed tus session until its own receipt is durable.
+    pub keep_completed_state: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct UploadOutcome {
+    pub uploaded_bytes: u64,
+    pub size: u64,
+    pub sha256: String,
+    pub delivery_id: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum UploadEvent {
+    Created(String),
+    Resuming(String),
+    Progress { uploaded: u64, total: u64 },
+}
+
+/// A scheduler may retry only transport failures and explicitly transient status codes.
+pub fn is_retryable_upload_error(error: &anyhow::Error) -> bool {
+    if let Some(status) = error
+        .chain()
+        .find_map(|e| e.downcast_ref::<HttpStatusError>())
+    {
+        return matches!(status.status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504);
+    }
+    error.chain().any(|e| {
+        e.downcast_ref::<reqwest::Error>()
+            .is_some_and(|e| e.is_connect() || e.is_timeout() || e.is_body())
+    })
+}
+
 pub fn run() -> Result<()> {
     run_cli(UploadCli::parse())
 }
@@ -139,23 +196,94 @@ fn run_cli(cli: UploadCli) -> Result<()> {
             cli.token_env
         )
     })?;
+    let state_path = cli.state_file.clone();
+    let max_chunks = cli.max_chunks;
+    let outcome = upload_with_events(
+        UploadRequest {
+            file: cli.file,
+            state_file: cli.state_file,
+            server_url: cli.server_url,
+            token,
+            name: cli.name,
+            directory: cli
+                .relative_path
+                .zip(cli.source_version)
+                .map(|(path, version)| crate::directory::DirectoryVersion { path, version }),
+            chunk_size_bytes: cli.chunk_size_bytes,
+            max_chunks: cli.max_chunks,
+            allow_insecure_http: cli.allow_insecure_http,
+            request_timeout_seconds: cli.request_timeout_seconds,
+            keep_completed_state: false,
+        },
+        |event| {
+            match event {
+                UploadEvent::Created(url) => println!("Created tus upload {}", safe_url(url)),
+                UploadEvent::Resuming(url) => println!("Resuming tus upload {}", safe_url(url)),
+                UploadEvent::Progress { uploaded, total } => {
+                    println!("  uploaded: {uploaded}/{total} bytes")
+                }
+            }
+            true
+        },
+    )?;
+    if let Some(id) = outcome.delivery_id {
+        println!("Upload complete");
+        println!("  delivery: {id}");
+        println!("  sha256:   {}", outcome.sha256);
+        println!("  size:     {}", outcome.size);
+    } else {
+        println!("Paused after {} chunk(s).", max_chunks.unwrap_or(0));
+        println!("Resume state: {}", safe_path(&state_path));
+    }
+    Ok(())
+}
+
+/// Runs on a blocking worker, never a UI thread. Returning false from the event
+/// callback pauses between requests; durable state remains available to resume.
+pub fn upload_with_events(
+    cli: UploadRequest,
+    mut on_event: impl FnMut(&UploadEvent) -> bool,
+) -> Result<UploadOutcome> {
+    if !(1..=MAX_CHUNK_SIZE).contains(&cli.chunk_size_bytes)
+        || !(1..=3600).contains(&cli.request_timeout_seconds)
+        || cli.max_chunks == Some(0)
+    {
+        bail!("invalid upload chunk size, timeout, or chunk limit");
+    }
+    if let Some(name) = &cli.name {
+        validate_upload_name(name)?;
+    }
+    if let Some(directory) = &cli.directory {
+        directory.validate()?;
+    }
     let client = TusClient::new(
         &cli.server_url,
-        &token,
+        &cli.token,
         cli.request_timeout_seconds,
         cli.allow_insecure_http,
     )?;
-    drop(token);
     let file = absolute_path(cli.file)?;
     let state_file = absolute_path(cli.state_file)?;
+    if file == state_file
+        || (state_file.exists() && fs::canonicalize(&file)? == fs::canonicalize(&state_file)?)
+    {
+        bail!("source file and resume state must be different files");
+    }
+    let _lock = crate::state::StateStore::new(state_file.clone()).lock_exclusive()?;
 
+    let continue_upload;
     let (state, inspection) = if state_file.exists() {
         let state = load_state(&state_file)?;
         client.validate_state(&state)?;
+        anyhow::ensure!(
+            state.directory == cli.directory,
+            "Directory path/version differs from saved upload state."
+        );
         let inspection = inspect_file(&file, state.size)
             .context("the source file no longer matches resumable upload state")?;
         validate_source_state(&state, &inspection, cli.name.as_deref())?;
-        println!("Resuming tus upload {}", safe_url(&state.upload_url));
+        validate_upload_name(&state.original_name)?;
+        continue_upload = on_event(&UploadEvent::Resuming(state.upload_url.clone()));
         (state, inspection)
     } else {
         let server_max_size = client.discover()?;
@@ -168,7 +296,9 @@ fn run_cli(cli: UploadCli) -> Result<()> {
                 .context("file name is not valid UTF-8; pass --name")?
                 .to_owned(),
         };
-        let metadata = metadata_header(&original_name, &inspection);
+        validate_upload_name(&original_name)?;
+        let metadata =
+            directory_metadata_header(&original_name, &inspection, cli.directory.as_ref());
         let upload_url = client.create(&inspection, &metadata)?;
         let state = UploadState {
             schema_version: STATE_SCHEMA_VERSION,
@@ -178,14 +308,16 @@ fn run_cli(cli: UploadCli) -> Result<()> {
             size: inspection.size,
             sha256: inspection.sha256.clone(),
             media_type: inspection.media_type.clone(),
+            directory: cli.directory,
         };
         save_state(&state_file, &state)?;
-        println!("Created tus upload {}", safe_url(&state.upload_url));
+        continue_upload = on_event(&UploadEvent::Created(state.upload_url.clone()));
         (state, inspection)
     };
 
     let upload_url = client.validate_upload_url(&state.upload_url)?;
-    let expected_metadata = metadata_header(&state.original_name, &inspection);
+    let expected_metadata =
+        directory_metadata_header(&state.original_name, &inspection, state.directory.as_ref());
     let mut remote = match client.head(&upload_url) {
         Ok(remote) => remote,
         Err(error) if should_discard_upload_state(&error) => {
@@ -208,6 +340,15 @@ fn run_cli(cli: UploadCli) -> Result<()> {
         .open(&file)
         .with_context(|| format!("failed to open source file {}", file.display()))?;
     while remote.offset < state.size {
+        if !continue_upload
+            || !on_event(&UploadEvent::Progress {
+                uploaded: remote.offset,
+                total: state.size,
+            })
+        {
+            return Ok(upload_outcome(&state, remote.offset, None));
+        }
+        let previous_offset = remote.offset;
         let remaining = state.size - remote.offset;
         let chunk_length = remaining.min(cli.chunk_size_bytes) as usize;
         let mut chunk = vec![0_u8; chunk_length];
@@ -235,12 +376,16 @@ fn run_cli(cli: UploadCli) -> Result<()> {
             }
         };
         validate_remote_upload(&state, &expected_metadata, &remote)?;
+        if remote.offset <= previous_offset {
+            bail!("server did not advance the tus upload offset");
+        }
         chunks_sent += 1;
-        println!("  uploaded: {}/{} bytes", remote.offset, state.size);
         if cli.max_chunks.is_some_and(|limit| chunks_sent >= limit) && remote.offset < state.size {
-            println!("Paused after {chunks_sent} chunk(s).");
-            println!("Resume state: {}", safe_path(&state_file));
-            return Ok(());
+            on_event(&UploadEvent::Progress {
+                uploaded: remote.offset,
+                total: state.size,
+            });
+            return Ok(upload_outcome(&state, remote.offset, None));
         }
     }
 
@@ -261,11 +406,39 @@ fn run_cli(cli: UploadCli) -> Result<()> {
     let delivery_id = remote
         .delivery_id
         .context("server reached the final tus offset without confirming a MiRelay delivery id")?;
-    remove_state(&state_file)?;
-    println!("Upload complete");
-    println!("  delivery: {delivery_id}");
-    println!("  sha256:   {}", state.sha256);
-    println!("  size:     {}", state.size);
+    crate::protocol::validate_delivery_id(&delivery_id)?;
+    if !cli.keep_completed_state {
+        remove_state(&state_file)?;
+    }
+    on_event(&UploadEvent::Progress {
+        uploaded: state.size,
+        total: state.size,
+    });
+    Ok(upload_outcome(&state, state.size, Some(delivery_id)))
+}
+
+fn upload_outcome(
+    state: &UploadState,
+    uploaded_bytes: u64,
+    delivery_id: Option<String>,
+) -> UploadOutcome {
+    UploadOutcome {
+        uploaded_bytes,
+        size: state.size,
+        sha256: state.sha256.clone(),
+        delivery_id,
+    }
+}
+
+fn validate_upload_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 255
+        || name.contains(['/', '\\'])
+        || name.chars().any(char::is_control)
+        || matches!(name, "." | "..")
+    {
+        bail!("upload name must be a single UTF-8 filename of at most 255 bytes");
+    }
     Ok(())
 }
 
@@ -534,6 +707,22 @@ fn metadata_header(original_name: &str, inspection: &FileInspection) -> String {
     .map(|(key, value)| format!("{key} {}", STANDARD.encode(value)))
     .collect::<Vec<_>>()
     .join(",")
+}
+
+fn directory_metadata_header(
+    original_name: &str,
+    inspection: &FileInspection,
+    directory: Option<&crate::directory::DirectoryVersion>,
+) -> String {
+    let mut header = metadata_header(original_name, inspection);
+    if let Some(directory) = directory {
+        header.push_str(&format!(
+            ",relative_path {},source_version {}",
+            STANDARD.encode(&directory.path),
+            STANDARD.encode(directory.version.to_string())
+        ));
+    }
+    header
 }
 
 fn require_tus_response(response: &Response) -> Result<()> {

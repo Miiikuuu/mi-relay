@@ -1,0 +1,10 @@
+.local/
+.gradle/
+.kotlin/
+**/build/
+local.properties
+**/target/
+app/src/main/jniLibs/
+*.jks
+*.keystore
+**/__pycache__/

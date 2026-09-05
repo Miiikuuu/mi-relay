@@ -1,0 +1,2 @@
+# Preserve the approved handoff exactly, including its Markdown hard line breaks.
+assets/brand/MiRelay-brand-kit-v1/** -text -whitespace

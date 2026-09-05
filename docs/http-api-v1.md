@@ -1,6 +1,6 @@
 # MiRelay HTTP API v1
 
-本文档定义上传端向中心服务器暂存文件，以及 Linux CLI 拉取并确认送达所需的最小协议。仓库中的 `mirelay-server` 是参考实现；`mirelay-upload` 是 Android 客户端尚未完成前的 Linux 测试发送器。用户管理和令牌签发不在当前范围内。
+本文档定义上传端向中心服务器暂存文件，以及 Linux CLI 拉取并确认送达所需的最小协议。仓库中的 `mirelay-server` 是参考实现；`mirelay-upload` 是独立的 Linux 测试发送器，[Android 开发版](../android/README.md) 通过 JNI 复用同一个 Rust 上传核心。独立 Folder、权限凭证与配对握手见 [Folder pairing](folder-pairing.md)；完整多用户账户管理尚未实现。
 
 ## 基本约定
 

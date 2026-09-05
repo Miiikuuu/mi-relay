@@ -135,6 +135,7 @@ fn png_bytes() -> Vec<u8> {
 fn config(root: &TempDir, command: Vec<String>) -> Config {
     Config {
         schema_version: 1,
+        directory_sync: false,
         device_id: "test-device".into(),
         server: ServerConfig::Filesystem {
             inbox_dir: root.path().join("unused-inbox"),

@@ -4,7 +4,54 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const PROTOCOL_HEADER: &str = "mirelay-protocol-version";
 
+/// A Folder is a server identity, not a local path or display name.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FolderHandshake {
+    pub schema_version: u32,
+    pub folder_id: String,
+    pub name: String,
+    pub role: String,
+    pub state: String,
+    pub verification: Option<String>,
+    pub max_file_size_bytes: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateFolderRequest {
+    pub name: String,
+}
+
+// Deliberately no Debug: these responses contain one-time credentials.
+#[derive(Serialize, Deserialize)]
+pub struct FolderCreated {
+    pub folder_id: String,
+    pub receiver_token: String,
+    pub pairing_code: String,
+    pub expires_at_unix: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClaimFolderRequest {
+    pub pairing_code: String,
+    pub sender_token: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfirmFolderRequest {
+    pub verification: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FolderInvitation {
+    pub pairing_code: String,
+    pub expires_at_unix: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
 pub struct DeliveryIndex<T> {
     pub schema_version: u32,
     #[serde(default)]

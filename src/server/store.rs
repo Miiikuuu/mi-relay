@@ -21,7 +21,7 @@ pub use crate::storage::validate_sha256;
 const DATABASE_NAME: &str = "mirelay-server.sqlite3";
 const CONTENT_DIR_NAME: &str = "content";
 const UPLOADS_DIR_NAME: &str = "uploads";
-const SERVER_SCHEMA_VERSION: i64 = 1;
+const SERVER_SCHEMA_VERSION: i64 = 3;
 const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -154,10 +154,37 @@ impl ServerStore {
                     .commit()
                     .context("failed to commit server database schema")?;
             }
-            SERVER_SCHEMA_VERSION => {}
+            1 | 2 | SERVER_SCHEMA_VERSION => {}
             other => bail!(
                 "unsupported server database schema version {other}; expected {SERVER_SCHEMA_VERSION}"
             ),
+        }
+        if version < 2 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch(
+                "CREATE TABLE IF NOT EXISTS folders (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+                    receiver_hash BLOB NOT NULL UNIQUE CHECK(length(receiver_hash)=32),
+                    sender_hash BLOB CHECK(sender_hash IS NULL OR length(sender_hash)=32),
+                    invite_hash BLOB NOT NULL CHECK(length(invite_hash)=32),
+                    expires INTEGER NOT NULL, ready INTEGER NOT NULL DEFAULT 0 CHECK(ready IN (0,1))
+                 );
+                 PRAGMA user_version = 2;",
+            )?;
+            transaction.commit()?;
+        }
+        if version < 3 {
+            connection.execute_batch("BEGIN IMMEDIATE;
+                CREATE TABLE directory_versions (
+                    device_id TEXT NOT NULL, delivery_id TEXT NOT NULL,
+                    path TEXT NOT NULL, version INTEGER NOT NULL CHECK(version>0),
+                    conflict INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(device_id, delivery_id), UNIQUE(device_id,path,version),
+                    FOREIGN KEY(device_id,delivery_id) REFERENCES deliveries(device_id,delivery_id));
+                CREATE INDEX directory_paths ON directory_versions(device_id,path,version);
+                CREATE TABLE directory_indexes (device_id TEXT PRIMARY KEY, inventory TEXT NOT NULL);
+                PRAGMA user_version=3; COMMIT;")?;
         }
         harden_database_permissions(&self.database_path)?;
         Ok(())
@@ -193,7 +220,22 @@ impl ServerStore {
         id: String,
         created_at_unix: u64,
     ) -> Result<StoredDelivery> {
+        self.enqueue_directory_with_id(device_id, input, original_name, id, created_at_unix, None)
+    }
+
+    pub(super) fn enqueue_directory_with_id(
+        &self,
+        device_id: &str,
+        input: &Path,
+        original_name: String,
+        id: String,
+        created_at_unix: u64,
+        directory: Option<&crate::directory::DirectoryVersion>,
+    ) -> Result<StoredDelivery> {
         validate_device_id(device_id)?;
+        if let Some(version) = directory {
+            version.validate()?;
+        }
         let inspection = inspect_file(input, self.max_file_size)?;
         let delivery = Delivery {
             schema_version: MANIFEST_SCHEMA_VERSION,
@@ -217,6 +259,7 @@ impl ServerStore {
             {
                 bail!("delivery {id} already exists with different metadata");
             }
+            self.check_directory_replay(device_id, &id, directory)?;
             return Ok(existing);
         }
         let input_file = File::open(input)
@@ -258,6 +301,9 @@ impl ServerStore {
             )
             .context("failed to insert delivery")?;
         let sequence = transaction.last_insert_rowid();
+        if let Some(directory) = directory {
+            self.insert_directory_version(&transaction, device_id, &id, directory)?;
+        }
         transaction
             .commit()
             .context("failed to commit enqueued delivery")?;
@@ -312,6 +358,7 @@ impl ServerStore {
                 FROM deliveries
                 WHERE device_id = ?1
                   AND acknowledged_at_unix IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM directory_versions v WHERE v.device_id=deliveries.device_id AND v.delivery_id=deliveries.delivery_id)
                   AND sequence > ?2
                   AND sequence <= ?3
                 ORDER BY sequence ASC
@@ -691,7 +738,7 @@ impl ServerStore {
         Ok(connection)
     }
 
-    fn open_connection_unchecked(&self) -> Result<Connection> {
+    pub(super) fn open_connection_unchecked(&self) -> Result<Connection> {
         let connection = Connection::open_with_flags(
             &self.database_path,
             OpenFlags::SQLITE_OPEN_READ_WRITE

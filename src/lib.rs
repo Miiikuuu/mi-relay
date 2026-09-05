@@ -7,9 +7,11 @@ pub mod client;
 pub mod config;
 #[cfg(feature = "desktop")]
 pub mod desktop;
+pub mod directory;
 pub mod fsutil;
 pub mod http_source;
 pub mod model;
+pub mod pairing;
 pub mod protocol;
 pub mod server;
 pub mod source;

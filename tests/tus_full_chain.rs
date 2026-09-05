@@ -93,6 +93,7 @@ async fn linux_tus_sender_resumes_then_linux_receiver_downloads_and_acks() {
 
     let config = Config {
         schema_version: 1,
+        directory_sync: false,
         device_id: "linux-receiver".into(),
         server: ServerConfig::Http {
             base_url: format!("http://{address}"),
@@ -190,6 +191,7 @@ async fn text_and_unknown_binary_are_delivered_without_running_the_wallpaper_hoo
 
     let config = Config {
         schema_version: 1,
+        directory_sync: false,
         device_id: "linux-receiver".into(),
         server: ServerConfig::Http {
             base_url: format!("http://{address}"),

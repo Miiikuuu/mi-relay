@@ -1,0 +1,39 @@
+[Unit]
+Description=MiRelay delivery server
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=mirelay
+Group=mirelay
+UMask=0077
+EnvironmentFile=/etc/mirelay/server.env
+StateDirectory=mirelay-server
+StateDirectoryMode=0700
+ExecStart=/opt/mirelay/bin/mirelay-server --data-dir /var/lib/mirelay-server --device-id linux --max-file-size-bytes 104857600 serve --listen 127.0.0.1:8080
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=45
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=128
+CPUWeight=50
+IOWeight=50
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,6 @@
 mod api;
+mod directory;
+mod folders;
 mod store;
 mod tus_api;
 mod tus_store;
@@ -66,6 +68,10 @@ struct ServeArgs {
     /// Read the device bearer token from this environment variable.
     #[arg(long, default_value = DEFAULT_TOKEN_ENV, value_name = "NAME")]
     token_env: String,
+
+    /// Separate administrator credential for creating isolated Folders. Never share with senders.
+    #[arg(long, default_value = "MIRELAY_ADMIN_TOKEN", value_name = "NAME")]
+    admin_token_env: String,
 
     /// Permit an unencrypted listener on a non-loopback address.
     #[arg(long)]
@@ -168,7 +174,14 @@ async fn serve(store: ServerStore, device_id: String, args: ServeArgs) -> Result
             args.token_env
         )
     })?;
-    let state = ApiState::new(store, device_id.clone(), &token)?;
+    let mut state = ApiState::new(store, device_id.clone(), &token)?;
+    validate_environment_variable_name(&args.admin_token_env)?;
+    if let Some(admin) = env::var_os(&args.admin_token_env) {
+        let admin = admin
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("administrator token is not UTF-8"))?;
+        state = state.with_admin_token(&admin)?;
+    }
     drop(token);
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await

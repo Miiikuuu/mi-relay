@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::rejection::{JsonRejection, QueryRejection};
-use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, OriginalUri, Path, Query, Request, State};
 use axum::http::header::{
     AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_MATCH, WWW_AUTHENTICATE,
 };
@@ -44,6 +44,8 @@ pub(super) struct ApiStateInner {
     pub(super) store: ServerStore,
     pub(super) device_id: String,
     pub(super) authorization_hash: [u8; 32],
+    pub(super) admin_hash: Option<[u8; 32]>,
+    pub(super) folder_queries: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +77,10 @@ pub(super) struct ApiError {
 impl ApiState {
     pub fn new(store: ServerStore, device_id: String, token: &str) -> Result<Self> {
         validate_device_id(&device_id)?;
+        anyhow::ensure!(
+            !device_id.starts_with("folder_"),
+            "folder_ identities are reserved for isolated Folder queues"
+        );
         validate_bearer_token(token)?;
         let mut hasher = Sha256::new();
         hasher.update(b"Bearer ");
@@ -84,14 +90,32 @@ impl ApiState {
                 store,
                 device_id,
                 authorization_hash: hasher.finalize().into(),
+                admin_hash: None,
+                folder_queries: Arc::new(tokio::sync::Semaphore::new(32)),
             }),
         })
+    }
+
+    pub fn with_admin_token(mut self, token: &str) -> Result<Self> {
+        validate_bearer_token(token)?;
+        anyhow::ensure!(
+            token.len() >= 32,
+            "administrator credential must contain at least 32 bytes"
+        );
+        let hash = super::folders::token_hash(token);
+        anyhow::ensure!(
+            hash != self.inner.authorization_hash,
+            "administrator and legacy device credentials must differ"
+        );
+        Arc::get_mut(&mut self.inner)
+            .context("configure administrator before sharing API state")?
+            .admin_hash = Some(hash);
+        Ok(self)
     }
 }
 
 pub fn router(state: ApiState) -> Router {
-    Router::new()
-        .route("/healthz", get(health))
+    let transfers = Router::new()
         .route("/api/v1/deliveries", get(list_deliveries))
         .route(
             "/api/v1/deliveries/{delivery_id}/content",
@@ -101,7 +125,13 @@ pub fn router(state: ApiState) -> Router {
             "/api/v1/deliveries/{delivery_id}/ack",
             put(acknowledge_delivery),
         )
-        .merge(super::tus_api::router())
+        .merge(super::tus_api::router());
+    Router::new()
+        .route("/healthz", get(health))
+        .merge(transfers.clone())
+        .nest("/f/{folder_id}", transfers)
+        .merge(super::folders::router())
+        .merge(super::directory::router())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .layer(DefaultBodyLimit::max(MAX_ACK_BODY_BYTES))
@@ -117,10 +147,12 @@ async fn health(State(state): State<ApiState>) -> Result<Response, ApiError> {
 
 async fn list_deliveries(
     State(state): State<ApiState>,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     query: Result<Query<ListQuery>, QueryRejection>,
 ) -> Result<Json<IndexResponse>, ApiError> {
-    authorize(&state, &headers)?;
+    let device_id = super::folders::authorize_transfer(&state, &headers, &uri, "receiver").await?;
+    check_protocol(&headers)?;
     let Query(query) = query.map_err(|_| {
         ApiError::bad_request("invalid_query", "invalid delivery-list query parameters")
     })?;
@@ -145,7 +177,6 @@ async fn list_deliveries(
     };
 
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
     let limit = query.limit;
     let page = run_store("list pending deliveries", move || {
         store.list_pending(&device_id, after_sequence, snapshot_sequence, limit)
@@ -156,10 +187,13 @@ async fn list_deliveries(
 
 async fn download_content(
     State(state): State<ApiState>,
-    Path(delivery_id): Path<String>,
+    OriginalUri(uri): OriginalUri,
+    Path(parameters): Path<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    authorize(&state, &headers)?;
+    let device_id = super::folders::authorize_transfer(&state, &headers, &uri, "receiver").await?;
+    check_protocol(&headers)?;
+    let delivery_id = parameters.get("delivery_id").cloned().unwrap_or_default();
     crate::storage::validate_delivery_id(&delivery_id)
         .map_err(|_| ApiError::bad_request("invalid_delivery_id", "delivery id is invalid"))?;
     if headers.get_all(IF_MATCH).iter().count() != 1 {
@@ -171,7 +205,6 @@ async fn download_content(
     }
 
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
     let queried_id = delivery_id.clone();
     let delivery = run_store("query delivery content", move || {
         store.get_delivery(&device_id, &queried_id)
@@ -216,11 +249,14 @@ async fn download_content(
 
 async fn acknowledge_delivery(
     State(state): State<ApiState>,
-    Path(delivery_id): Path<String>,
+    OriginalUri(uri): OriginalUri,
+    Path(parameters): Path<HashMap<String, String>>,
     headers: HeaderMap,
     body: Result<Json<AcknowledgeRequest>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
-    authorize(&state, &headers)?;
+    let device_id = super::folders::authorize_transfer(&state, &headers, &uri, "receiver").await?;
+    check_protocol(&headers)?;
+    let delivery_id = parameters.get("delivery_id").cloned().unwrap_or_default();
     crate::storage::validate_delivery_id(&delivery_id)
         .map_err(|_| ApiError::bad_request("invalid_delivery_id", "delivery id is invalid"))?;
     let Json(body) =
@@ -229,13 +265,24 @@ async fn acknowledge_delivery(
         .map_err(|_| ApiError::bad_request("invalid_sha256", "sha256 is invalid"))?;
 
     let store = state.inner.store.clone();
-    let device_id = state.inner.device_id.clone();
     let acknowledged_id = delivery_id.clone();
     let acknowledged_sha256 = body.sha256.clone();
     let outcome = run_store("acknowledge delivery", move || {
-        store.acknowledge(&device_id, &acknowledged_id, &acknowledged_sha256)
+        if store.is_directory_delivery(&device_id, &acknowledged_id)? {
+            return Ok(None);
+        }
+        store
+            .acknowledge(&device_id, &acknowledged_id, &acknowledged_sha256)
+            .map(Some)
     })
-    .await?;
+    .await?
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "directory_receipt_required",
+            "Directory versions require a directory receipt.",
+        )
+    })?;
     match outcome {
         AcknowledgeOutcome::NotFound => {
             return Err(ApiError::new(
@@ -340,9 +387,7 @@ fn decode_cursor(encoded: &str) -> Result<CursorV1, ApiError> {
     Ok(cursor)
 }
 
-fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<(), ApiError> {
-    authorize_bearer(state, headers)?;
-
+pub(super) fn check_protocol(headers: &HeaderMap) -> Result<(), ApiError> {
     if headers.get_all(&PROTOCOL_HEADER_NAME).iter().count() != 1
         || headers
             .get(&PROTOCOL_HEADER_NAME)

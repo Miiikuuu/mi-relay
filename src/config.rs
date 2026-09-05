@@ -25,6 +25,10 @@ const MAX_CONFIG_SIZE_BYTES: u64 = 1024 * 1024;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
+    /// Explicit opt-in. Older readers reject this unknown field rather than
+    /// accidentally running the delivery-only pipeline in a managed directory.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub directory_sync: bool,
     pub device_id: String,
     pub server: ServerConfig,
     pub storage: StorageConfig,
@@ -102,6 +106,7 @@ impl Config {
 
         Ok(Self {
             schema_version: CONFIG_SCHEMA_VERSION,
+            directory_sync: false,
             device_id: Uuid::new_v4().to_string(),
             server: ServerConfig::Filesystem { inbox_dir },
             storage: StorageConfig {
@@ -149,7 +154,14 @@ impl Config {
         if let ServerConfig::Filesystem { inbox_dir } = &self.server {
             create_dir_all_durable(inbox_dir)?;
         }
-        create_dir_all_durable(&self.storage.library_dir)?;
+        if self.directory_sync {
+            anyhow::ensure!(
+                self.storage.library_dir.is_dir(),
+                "Choose an existing directory for directory sync."
+            );
+        } else {
+            create_dir_all_durable(&self.storage.library_dir)?;
+        }
         if let Some(parent) = self.storage.state_file.parent() {
             create_dir_all_durable(parent)?;
         }
@@ -184,6 +196,27 @@ impl Config {
             }
             ServerConfig::Http { .. } => validate_http_server(&self.server)?,
         }
+        if self.directory_sync {
+            let ServerConfig::Http { base_url, .. } = &self.server else {
+                bail!("Directory sync requires a paired HTTP Folder.");
+            };
+            let url = reqwest::Url::parse(base_url)?;
+            let scope = url.path().trim_end_matches('/').strip_prefix("/f/");
+            anyhow::ensure!(
+                scope.is_some_and(
+                    |id| Uuid::parse_str(id).is_ok_and(|value| value.to_string() == id)
+                ),
+                "Directory sync requires a scoped /f/<Folder ID> URL."
+            );
+            anyhow::ensure!(
+                self.wallpaper.command.is_empty(),
+                "Directory sync does not run wallpaper commands."
+            );
+            anyhow::ensure!(
+                self.limits.max_file_size_bytes == DEFAULT_MAX_FILE_SIZE_BYTES,
+                "Directory sync currently requires the 100 MiB file limit."
+            );
+        }
         if self.storage.library_dir.as_os_str().is_empty() {
             bail!("storage.library_dir must not be empty");
         }
@@ -211,6 +244,17 @@ impl Config {
         }
         Ok(())
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+/// Kept outside the projection and separate from delivery-only state.
+pub fn directory_state_dir(config: &Config) -> PathBuf {
+    let mut path = config.storage.state_file.as_os_str().to_owned();
+    path.push(".directory");
+    PathBuf::from(path)
 }
 
 fn default_wallpaper_timeout_seconds() -> u64 {

@@ -3,3 +3,12 @@
 *.swo
 .idea/
 .vscode/
+# Local credentials and development certificates must never be published.
+/.env
+/.env.*
+!/.env.example
+**/server.env
+*.keystore
+*.jks
+*.key
+*.pem

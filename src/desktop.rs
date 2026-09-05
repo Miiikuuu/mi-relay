@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -27,12 +27,108 @@ use crate::config::{
 };
 use crate::model::{DeliveryRecord, DeliveryStatus, WallpaperStatus};
 use crate::state::StateStore;
-use crate::sync::{SyncSummary, status_counts, sync_once};
+use crate::sync::{SyncEvent, SyncPhase, SyncSummary, status_counts, sync_once_with_events};
+
+mod brand;
+mod directory_panel;
+#[cfg(test)]
+mod directory_tests;
+mod file_smoke;
+mod files;
+mod loading;
+mod pairing_panel;
+mod sidebar;
+mod sorting;
+mod stress_smoke;
+use files::{FileActivity, FileEntry, FileFilter, FileHistory, FileKind, FileSort, visible_files};
+use loading::loading_ring;
+use sidebar::{FolderFilter, FolderSort, folder_notice, has_new_deliveries, visible_folder_ids};
+use sorting::{SortField, sort_button};
 
 const APPLICATION_ID: &str = "io.mirelay.Desktop";
 const AUTO_RECEIVE_INTERVAL_SECONDS: u64 = 60;
+const FILE_PAGE_SIZE: usize = 100;
+const FILE_KINDS: [FileKind; 7] = [
+    FileKind::All,
+    FileKind::Images,
+    FileKind::Documents,
+    FileKind::Audio,
+    FileKind::Video,
+    FileKind::Archives,
+    FileKind::Other,
+];
+
+#[derive(Clone)]
+struct FileViewOptions {
+    sort: FileSort,
+    filter: FileFilter,
+    kind: FileKind,
+    query: String,
+    limit: usize,
+}
+
+impl Default for FileViewOptions {
+    fn default() -> Self {
+        Self {
+            sort: FileSort::default(),
+            filter: FileFilter::default(),
+            kind: FileKind::default(),
+            query: String::new(),
+            limit: FILE_PAGE_SIZE,
+        }
+    }
+}
 
 const DESKTOP_CSS: &str = r#"
+.mirelay .brand-button {
+  background: #ffffff;
+  padding: 2px;
+  border-radius: 8px;
+}
+
+.mirelay .brand-button:hover {
+  box-shadow: inset 0 0 0 1px alpha(@window_fg_color, 0.25);
+}
+
+.mirelay .brand-canvas {
+  background: #ffffff;
+}
+
+.mirelay button.suggested-action,
+.mirelay menubutton.suggested-action > button,
+.mirelay switch:checked {
+  background: @relay_accent;
+  color: @relay_on_accent;
+  box-shadow: inset 0 0 0 1px @relay_accent_border;
+}
+
+.mirelay button.suggested-action:hover,
+.mirelay menubutton.suggested-action > button:hover {
+  background: @relay_accent_hover;
+}
+
+.mirelay button.suggested-action:disabled {
+  background: alpha(@window_fg_color, 0.10);
+  color: alpha(@window_fg_color, 0.40);
+  box-shadow: none;
+}
+
+.mirelay button,
+.mirelay entry {
+  border-radius: 6px;
+}
+
+.mirelay :focus-visible {
+  outline-color: alpha(@window_fg_color, 0.65);
+}
+
+.mirelay button.suggested-action:focus-visible,
+.mirelay menubutton.suggested-action > button:focus-visible,
+.mirelay .bridge-list row:selected:focus-visible,
+.mirelay switch:checked:focus-visible {
+  outline-color: @relay_on_accent;
+}
+
 .workspace {
   background: @window_bg_color;
 }
@@ -43,28 +139,26 @@ const DESKTOP_CSS: &str = r#"
 }
 
 .sidebar-heading {
-  padding: 24px 20px 16px 20px;
+  padding: 16px 14px 10px;
 }
 
 .sidebar-title {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.2px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .secondary-text,
-.bridge-kicker,
 .property-title {
-  color: alpha(@window_fg_color, 0.60);
+  color: alpha(@window_fg_color, 0.68);
 }
 
 .bridge-list {
   background: transparent;
-  padding: 0 8px 12px 8px;
+  padding: 0 8px 8px;
 }
 
 .bridge-list row {
-  border-radius: 12px;
+  border-radius: 6px;
   margin: 2px 0;
 }
 
@@ -73,19 +167,25 @@ const DESKTOP_CSS: &str = r#"
 }
 
 .bridge-list row:selected {
-  background: alpha(@accent_bg_color, 0.14);
-  color: @window_fg_color;
+  background: @relay_accent;
+  color: @relay_on_accent;
+  box-shadow: inset 0 0 0 1px @relay_accent_border;
+}
+
+.bridge-list row:selected .secondary-text {
+  color: alpha(@relay_on_accent, 0.75);
+}
+
+.bridge-list row:selected .folder-notice {
+  color: @relay_on_accent;
 }
 
 .bridge-row {
-  padding: 12px;
+  padding: 8px 10px;
 }
 
 .bridge-icon {
-  background: alpha(@accent_bg_color, 0.12);
-  color: @accent_color;
-  border-radius: 11px;
-  padding: 10px;
+  padding: 2px;
 }
 
 .bridge-name,
@@ -94,47 +194,86 @@ const DESKTOP_CSS: &str = r#"
   font-weight: 600;
 }
 
-.bridge-dot {
-  background: @success_color;
-  border-radius: 999px;
-  min-width: 8px;
-  min-height: 8px;
+.folder-notice {
+  color: alpha(@window_fg_color, 0.70);
 }
 
-.bridge-dot.state-error {
-  background: @error_color;
+.sidebar-heading button,
+.activity-header button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
+.folder-filter {
+  padding: 8px;
+}
+
+.folder-filter checkbutton {
+  padding: 6px 4px;
+}
+
+.sort-options {
+  padding: 4px;
+  min-width: 184px;
+}
+
+.sort-field {
+  padding: 2px 2px 2px 6px;
+}
+
+.sort-options button.sort-direction {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 5px;
+  color: alpha(@window_fg_color, 0.50);
+  box-shadow: none;
+}
+
+.sort-options button.sort-direction:hover {
+  background: alpha(@window_fg_color, 0.07);
+  color: @window_fg_color;
+}
+
+.sort-options button.sort-direction:checked {
+  background: @relay_accent;
+  color: @relay_on_accent;
+  box-shadow: inset 0 0 0 1px @relay_accent_border;
+}
+
+.sort-options button.sort-direction:checked:focus-visible {
+  outline-color: @relay_on_accent;
+}
+
+.sidebar-no-results {
+  padding: 20px 12px;
 }
 
 .bridge-page {
-  padding: 38px 42px 42px 42px;
-}
-
-.bridge-kicker {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
+  padding: 24px;
 }
 
 .bridge-title {
-  font-size: 28px;
+  font-size: 23px;
   font-weight: 700;
   letter-spacing: -0.4px;
 }
 
 .bridge-hero-icon {
-  background: alpha(@accent_bg_color, 0.11);
-  color: @accent_color;
-  border-radius: 17px;
-  padding: 16px;
+  background: alpha(@window_fg_color, 0.055);
+  color: @window_fg_color;
+  border-radius: 8px;
+  padding: 8px;
 }
 
 .bridge-status {
   font-weight: 600;
-  color: @success_color;
+  color: @window_fg_color;
 }
 
 .state-success {
-  color: @success_color;
+  color: alpha(@window_fg_color, 0.75);
 }
 
 .state-pending {
@@ -148,11 +287,11 @@ const DESKTOP_CSS: &str = r#"
 .property-group {
   background: @card_bg_color;
   border: 1px solid alpha(@window_fg_color, 0.09);
-  border-radius: 14px;
+  border-radius: 8px;
 }
 
 .property-row {
-  padding: 12px 15px;
+  padding: 9px 12px;
   border-bottom: 1px solid alpha(@window_fg_color, 0.075);
 }
 
@@ -162,7 +301,7 @@ const DESKTOP_CSS: &str = r#"
 
 .property-title {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .property-value {
@@ -170,17 +309,17 @@ const DESKTOP_CSS: &str = r#"
 }
 
 .activity-header {
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .activity-title {
-  font-size: 17px;
+  font-size: 14px;
 }
 
 .activity-list {
   background: @card_bg_color;
   border: 1px solid alpha(@window_fg_color, 0.09);
-  border-radius: 14px;
+  border-radius: 8px;
 }
 
 .activity-list row {
@@ -192,14 +331,18 @@ const DESKTOP_CSS: &str = r#"
 }
 
 .delivery-row {
-  padding: 11px 14px;
+  padding: 8px 12px;
 }
 
 .mime-icon {
-  background: alpha(@accent_bg_color, 0.10);
-  color: @accent_color;
-  border-radius: 9px;
-  padding: 8px;
+  color: alpha(@window_fg_color, 0.75);
+  padding: 4px;
+}
+
+.activity-empty {
+  padding: 18px 16px;
+  border: 1px solid alpha(@window_fg_color, 0.09);
+  border-radius: 8px;
 }
 
 .row-state {
@@ -214,7 +357,11 @@ const DESKTOP_CSS: &str = r#"
 }
 
 .settings-page {
-  padding: 24px;
+  padding: 16px 20px;
+}
+
+.settings-page row {
+  min-height: 48px;
 }
 "#;
 
@@ -233,6 +380,10 @@ struct DesktopArgs {
     #[arg(long, value_name = "PATH")]
     registry: Option<PathBuf>,
 
+    /// Open an independent window using an explicit Folder registry.
+    #[arg(long, requires = "registry")]
+    new_instance: bool,
+
     /// Open the window briefly and exit. Used by automated smoke tests.
     #[arg(long, hide = true)]
     smoke_test: bool,
@@ -241,9 +392,59 @@ struct DesktopArgs {
     #[arg(long, value_name = "PATH", hide = true)]
     screenshot: Option<PathBuf>,
 
+    /// Capture Folder Settings instead of the main window.
+    #[arg(long, requires = "screenshot", hide = true)]
+    screenshot_settings: bool,
+
+    /// Set the main window width for visual regression checks.
+    #[arg(long, requires = "screenshot", value_parser = clap::value_parser!(i32).range(820..=2400), hide = true)]
+    screenshot_width: Option<i32>,
+
+    /// Capture an open sidebar menu for visual checks.
+    #[arg(long, requires = "screenshot", conflicts_with = "screenshot_settings", value_parser = ["sort", "filter", "file-sort", "file-filter"], hide = true)]
+    screenshot_sidebar_menu: Option<String>,
+
+    /// Apply a sidebar filter before capture.
+    #[arg(long, requires = "screenshot", value_parser = ["all", "attention", "pending", "new-files"], hide = true)]
+    screenshot_folder_filter: Option<String>,
+
+    /// Apply a file filter before capture.
+    #[arg(long, requires = "screenshot", value_parser = ["all", "in-progress", "attention", "completed"], hide = true)]
+    screenshot_file_filter: Option<String>,
+
+    /// Preview a synthetic active file; never initiates a real transfer.
+    #[arg(long, requires = "screenshot", hide = true)]
+    screenshot_file_activity: bool,
+
+    /// Exercise sidebar controls in an isolated graphical test window and exit.
+    #[arg(long, requires = "registry", conflicts_with_all = ["smoke_test", "screenshot", "automation_smoke_test"], hide = true)]
+    sidebar_smoke_test: bool,
+
+    /// Exercise file controls and live updates using a disposable registry.
+    #[arg(long, requires = "registry", conflicts_with_all = ["smoke_test", "sidebar_smoke_test", "screenshot", "automation_smoke_test"], hide = true)]
+    file_smoke_test: bool,
+
     /// Run automatic receive on a short interval and exit. Used by integration smoke tests.
     #[arg(long, hide = true)]
     automation_smoke_test: bool,
+}
+
+#[derive(Clone)]
+struct ScreenshotOptions {
+    path: PathBuf,
+    settings: bool,
+    width: Option<i32>,
+    sidebar_menu: Option<String>,
+    folder_filter: Option<String>,
+    file_filter: Option<String>,
+    file_activity: bool,
+    failure: Rc<RefCell<Option<String>>>,
+}
+
+struct SmokeChecks {
+    sidebar: bool,
+    files: bool,
+    failure: Rc<RefCell<Option<String>>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -264,7 +465,8 @@ struct BridgeSnapshot {
     max_file_size_bytes: u64,
     wallpaper_label: String,
     counts: BridgeCounts,
-    deliveries: Vec<DeliveryRecord>,
+    deliveries: Arc<FileHistory>,
+    directory: Option<Arc<directory_panel::DirectorySnapshot>>,
 }
 
 #[derive(Debug, Clone)]
@@ -297,6 +499,7 @@ struct BridgeResources {
     device_id: String,
     filesystem_inbox: Option<PathBuf>,
     http_endpoint: Option<String>,
+    directory_state: Option<PathBuf>,
 }
 
 impl BridgeResources {
@@ -305,6 +508,9 @@ impl BridgeResources {
             library_dir: comparable_path(&config.storage.library_dir),
             state_file: comparable_path(&config.storage.state_file),
             device_id: config.device_id.clone(),
+            directory_state: config
+                .directory_sync
+                .then(|| comparable_path(&crate::config::directory_state_dir(config))),
             filesystem_inbox: match &config.server {
                 ServerConfig::Filesystem { inbox_dir } => Some(comparable_path(inbox_dir)),
                 ServerConfig::Http { .. } => None,
@@ -339,6 +545,10 @@ struct SyncOutcome {
 }
 
 enum WorkerMessage {
+    FileProgress {
+        bridge_id: String,
+        event: SyncEvent,
+    },
     Loaded(std::result::Result<RegistrySnapshot, String>),
     Synced {
         automatic: bool,
@@ -353,7 +563,6 @@ struct Widgets {
     refresh_button: gtk::Button,
     sync_button: gtk::Button,
     sync_indicator: gtk::Stack,
-    sync_spinner: gtk::Spinner,
     sync_label: gtk::Label,
     add_bridge_button: gtk::Button,
     settings_button: gtk::Button,
@@ -361,8 +570,11 @@ struct Widgets {
     error_revealer: gtk::Revealer,
     error_label: gtk::Label,
     toast_overlay: adw::ToastOverlay,
-    bridge_count_label: gtk::Label,
     bridge_list: gtk::ListBox,
+    sidebar_results: gtk::Stack,
+    folder_sort_button: gtk::MenuButton,
+    folder_filter_button: gtk::MenuButton,
+    folder_search: gtk::SearchEntry,
     summary_label: gtk::Label,
     content_stack: gtk::Stack,
     empty_page: adw::StatusPage,
@@ -380,8 +592,13 @@ struct Widgets {
     auto_receive_value: gtk::Label,
     wallpaper_value: gtk::Label,
     activity_stack: gtk::Stack,
-    activity_empty: adw::StatusPage,
+    activity_empty: gtk::Label,
     delivery_list: gtk::ListBox,
+    file_sort_button: gtk::MenuButton,
+    file_filter_button: gtk::MenuButton,
+    file_search: gtk::SearchEntry,
+    file_kind: gtk::DropDown,
+    file_show_more: gtk::Button,
 }
 
 struct DesktopUi {
@@ -389,8 +606,20 @@ struct DesktopUi {
     bridges: RefCell<Vec<BridgeView>>,
     bridge_ids: RefCell<Vec<String>>,
     selected_bridge_id: RefCell<Option<String>>,
+    folder_sort: Cell<FolderSort>,
+    folder_filter: Cell<FolderFilter>,
+    unread_folders: RefCell<HashSet<String>>,
+    sync_failed_folders: RefCell<HashSet<String>>,
+    rendering_list: Cell<bool>,
+    file_views: RefCell<HashMap<String, FileViewOptions>>,
+    file_activity: RefCell<HashMap<String, HashMap<String, FileActivity>>>,
+    rendering_file_controls: Cell<bool>,
+    processing_worker_batch: Cell<bool>,
+    file_render_pending: Cell<bool>,
+    rendered_files: RefCell<Vec<FileEntry>>,
     tokens: RefCell<HashMap<String, String>>,
     busy: Cell<bool>,
+    editor_open: Cell<bool>,
     sender: mpsc::Sender<WorkerMessage>,
     widgets: Widgets,
 }
@@ -610,6 +839,13 @@ fn append_bridge_error(bridge: &mut BridgeView, error: String) {
 }
 
 fn self_resource_problem(resources: &BridgeResources) -> Option<String> {
+    if resources
+        .directory_state
+        .as_ref()
+        .is_some_and(|state| paths_overlap(state, &resources.library_dir))
+    {
+        return Some("Directory state overlaps its managed folder".into());
+    }
     if resources.state_file.starts_with(&resources.library_dir) {
         return Some(format!(
             "State file {} is inside the managed folder",
@@ -634,6 +870,22 @@ fn self_resource_problem(resources: &BridgeResources) -> Option<String> {
 }
 
 fn resource_problem(left: &BridgeResources, right: &BridgeResources) -> Option<String> {
+    for (owner, other) in [(left, right), (right, left)] {
+        if let Some(state) = &owner.directory_state
+            && (paths_overlap(state, &other.library_dir)
+                || other.state_file.starts_with(state)
+                || other
+                    .directory_state
+                    .as_ref()
+                    .is_some_and(|next| paths_overlap(state, next))
+                || other
+                    .filesystem_inbox
+                    .as_ref()
+                    .is_some_and(|inbox| paths_overlap(state, inbox)))
+        {
+            return Some("One Folder's directory state overlaps another Folder's resources".into());
+        }
+    }
     if paths_overlap(&left.library_dir, &right.library_dir) {
         return Some(format!(
             "Managed folders {} and {} overlap",
@@ -735,13 +987,41 @@ pub fn run() -> Result<()> {
     let DesktopArgs {
         config,
         registry,
+        new_instance,
         smoke_test,
         screenshot,
+        screenshot_settings,
+        screenshot_width,
+        screenshot_sidebar_menu,
+        screenshot_folder_filter,
+        screenshot_file_filter,
+        screenshot_file_activity,
+        sidebar_smoke_test,
+        file_smoke_test,
         automation_smoke_test,
     } = DesktopArgs::parse();
     let paths = resolve_desktop_paths(config, registry)?;
+    brand::register_resources()?;
+    let screenshot_failure = Rc::new(RefCell::new(None));
+    let screenshot_requested = screenshot.is_some();
+    let screenshot = screenshot.map(|path| ScreenshotOptions {
+        path,
+        settings: screenshot_settings,
+        width: screenshot_width,
+        sidebar_menu: screenshot_sidebar_menu,
+        folder_filter: screenshot_folder_filter,
+        file_filter: screenshot_file_filter,
+        file_activity: screenshot_file_activity,
+        failure: Rc::clone(&screenshot_failure),
+    });
 
-    let flags = if smoke_test || screenshot.is_some() || automation_smoke_test {
+    let flags = if new_instance
+        || smoke_test
+        || sidebar_smoke_test
+        || file_smoke_test
+        || screenshot.is_some()
+        || automation_smoke_test
+    {
         gio::ApplicationFlags::NON_UNIQUE
     } else {
         gio::ApplicationFlags::empty()
@@ -750,17 +1030,30 @@ pub fn run() -> Result<()> {
         .application_id(APPLICATION_ID)
         .flags(flags)
         .build();
+    let diagnostic_failure = Rc::clone(&screenshot_failure);
     application.connect_activate(move |application| {
         install_css();
+        brand::install_icons();
         build_window(
             application,
             paths.clone(),
             smoke_test,
             screenshot.clone(),
             automation_smoke_test,
+            SmokeChecks {
+                sidebar: sidebar_smoke_test,
+                files: file_smoke_test,
+                failure: Rc::clone(&diagnostic_failure),
+            },
         );
     });
     let exit_code = application.run_with_args(&["mirelay-desktop"]);
+    if let Some(error) = screenshot_failure.borrow_mut().take() {
+        if screenshot_requested {
+            bail!("failed to capture desktop window: {error}");
+        }
+        bail!("desktop diagnostic failed: {error}");
+    }
     if exit_code != glib::ExitCode::SUCCESS {
         bail!(
             "desktop application exited with status {}",
@@ -774,9 +1067,15 @@ fn build_window(
     application: &adw::Application,
     paths: DesktopPaths,
     smoke_test: bool,
-    screenshot_path: Option<PathBuf>,
+    screenshot: Option<ScreenshotOptions>,
     automation_smoke_test: bool,
+    checks: SmokeChecks,
 ) {
+    let SmokeChecks {
+        sidebar: sidebar_smoke_test,
+        files: file_smoke_test,
+        failure: diagnostic_failure,
+    } = checks;
     let (widgets, error_close) = build_widgets(application);
     let (sender, receiver) = mpsc::channel();
     let ui = Rc::new(DesktopUi {
@@ -784,8 +1083,20 @@ fn build_window(
         bridges: RefCell::new(Vec::new()),
         bridge_ids: RefCell::new(Vec::new()),
         selected_bridge_id: RefCell::new(None),
+        folder_sort: Cell::new(FolderSort::default()),
+        folder_filter: Cell::new(FolderFilter::default()),
+        unread_folders: RefCell::new(HashSet::new()),
+        sync_failed_folders: RefCell::new(HashSet::new()),
+        rendering_list: Cell::new(false),
+        file_views: RefCell::new(HashMap::new()),
+        file_activity: RefCell::new(HashMap::new()),
+        rendering_file_controls: Cell::new(false),
+        processing_worker_batch: Cell::new(false),
+        file_render_pending: Cell::new(false),
+        rendered_files: RefCell::new(Vec::new()),
         tokens: RefCell::new(HashMap::new()),
         busy: Cell::new(false),
+        editor_open: Cell::new(false),
         sender,
         widgets,
     });
@@ -808,12 +1119,16 @@ fn build_window(
     {
         let ui = Rc::clone(&ui);
         let button = ui.widgets.add_bridge_button.clone();
-        button.connect_clicked(move |_| show_bridge_editor(&ui, BridgeEditorMode::New));
+        button.connect_clicked(move |_| {
+            show_bridge_editor(&ui, BridgeEditorMode::New);
+        });
     }
     {
         let ui = Rc::clone(&ui);
         let button = ui.widgets.empty_action.clone();
-        button.connect_clicked(move |_| show_bridge_editor(&ui, BridgeEditorMode::New));
+        button.connect_clicked(move |_| {
+            show_bridge_editor(&ui, BridgeEditorMode::New);
+        });
     }
     {
         let ui = Rc::clone(&ui);
@@ -829,7 +1144,9 @@ fn build_window(
         let ui = Rc::clone(&ui);
         let list = ui.widgets.bridge_list.clone();
         list.connect_row_selected(move |_, row| {
-            if let Some(row) = row {
+            if !ui.rendering_list.get()
+                && let Some(row) = row
+            {
                 ui.select_bridge_at(row.index());
             }
         });
@@ -864,18 +1181,33 @@ fn build_window(
     ui.widgets.window.add_action(&settings_action);
     application.set_accels_for_action("win.settings", &["<Primary>comma"]);
 
+    install_folder_actions(&ui, application);
+    install_file_actions(&ui);
+
     let weak_ui = Rc::downgrade(&ui);
     glib::timeout_add_local(Duration::from_millis(75), move || {
         let Some(ui) = weak_ui.upgrade() else {
             return glib::ControlFlow::Break;
         };
-        while let Ok(message) = receiver.try_recv() {
+        // Keep bulk transfers from starving GTK input/animation. Render once per batch,
+        // not once for every download/verification/ACK event in the queue.
+        let started = std::time::Instant::now();
+        ui.processing_worker_batch.set(true);
+        for _ in 0..64 {
+            let Ok(message) = receiver.try_recv() else {
+                break;
+            };
             ui.handle_worker_message(message);
+            if started.elapsed() >= Duration::from_millis(8) {
+                break;
+            }
         }
+        ui.processing_worker_batch.set(false);
+        ui.flush_file_render();
         glib::ControlFlow::Continue
     });
 
-    if !smoke_test && screenshot_path.is_none() {
+    if !smoke_test && !sidebar_smoke_test && !file_smoke_test && screenshot.is_none() {
         let weak_ui = Rc::downgrade(&ui);
         let interval = if automation_smoke_test {
             Duration::from_secs(1)
@@ -891,17 +1223,111 @@ fn build_window(
         });
     }
 
+    if let Some(width) = screenshot.as_ref().and_then(|options| options.width) {
+        ui.widgets.window.set_default_size(width, 680);
+    }
     ui.widgets.window.present();
     ui.start_load_all();
 
-    if let Some(path) = screenshot_path {
+    if sidebar_smoke_test || file_smoke_test {
         let application = application.clone();
-        let window = ui.widgets.window.clone();
-        glib::timeout_add_local_once(Duration::from_millis(900), move || {
-            if let Err(error) = capture_window(&window, &path) {
-                eprintln!("failed to capture desktop window: {error:#}");
+        let mut attempts = 0;
+        glib::timeout_add_local(Duration::from_millis(100), move || {
+            attempts += 1;
+            if ui.busy.get() && attempts < 100 {
+                return glib::ControlFlow::Continue;
+            }
+            let result = if ui.busy.get() {
+                Err(anyhow::anyhow!("Desktop diagnostic load timed out"))
+            } else if file_smoke_test {
+                file_smoke::run(&ui)
+            } else {
+                sidebar_smoke_checks(&ui)
+            };
+            match result {
+                Ok(()) => println!(
+                    "{} interaction checks passed",
+                    if file_smoke_test { "File" } else { "Sidebar" }
+                ),
+                Err(error) => {
+                    diagnostic_failure
+                        .replace(Some(format!("Desktop interaction check failed: {error:#}")));
+                }
             }
             application.quit();
+            glib::ControlFlow::Break
+        });
+        return;
+    }
+
+    if let Some(options) = screenshot {
+        let application = application.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            if options.file_activity
+                && let Some(bridge_id) = ui.selected_bridge_id.borrow().clone()
+            {
+                ui.handle_worker_message(WorkerMessage::FileProgress {
+                    bridge_id,
+                    event: SyncEvent::FileActive {
+                        id: "preview-active-file".into(),
+                        original_name: "Design references.zip".into(),
+                        media_type: "application/zip".into(),
+                        size: 16 * 1024 * 1024,
+                        phase: SyncPhase::Downloading,
+                    },
+                });
+            }
+            if let Some(filter) = &options.file_filter {
+                ui.widgets
+                    .window
+                    .lookup_action("file-filter")
+                    .unwrap()
+                    .activate(Some(&filter.to_variant()));
+            }
+            if let Some(filter) = &options.folder_filter {
+                ui.widgets
+                    .window
+                    .lookup_action("folder-filter")
+                    .unwrap()
+                    .activate(Some(&filter.to_variant()));
+            }
+            match options.sidebar_menu.as_deref() {
+                Some("sort") => ui.widgets.folder_sort_button.popup(),
+                Some("filter") => ui.widgets.folder_filter_button.popup(),
+                Some("file-sort") => ui.widgets.file_sort_button.popup(),
+                Some("file-filter") => ui.widgets.file_filter_button.popup(),
+                _ => {}
+            }
+            // Popovers use a separate native surface and are absent from a window snapshot.
+            let capture: gtk::Widget = if options.settings {
+                show_bridge_editor(
+                    &ui,
+                    ui.selected_bridge_id
+                        .borrow()
+                        .clone()
+                        .map(BridgeEditorMode::Edit)
+                        .unwrap_or(BridgeEditorMode::New),
+                )
+                .expect("the loaded Folder must have an editor")
+                .upcast()
+            } else if let Some(menu) = options.sidebar_menu.as_deref() {
+                match menu {
+                    "sort" => ui.widgets.folder_sort_button.popover(),
+                    "file-sort" => ui.widgets.file_sort_button.popover(),
+                    "file-filter" => ui.widgets.file_filter_button.popover(),
+                    _ => ui.widgets.folder_filter_button.popover(),
+                }
+                .expect("the sidebar menu must have a popover")
+                .upcast()
+            } else {
+                ui.widgets.window.clone().upcast()
+            };
+            glib::timeout_add_local_once(Duration::from_millis(250), move || {
+                if let Err(error) = capture_widget(&capture, &options.path) {
+                    options.failure.replace(Some(format!("{error:#}")));
+                }
+                application.quit();
+            });
         });
     } else if smoke_test {
         let application = application.clone();
@@ -916,14 +1342,16 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("MiRelay")
-        .default_width(1120)
-        .default_height(760)
+        .default_width(1000)
+        .default_height(680)
         .width_request(820)
         .height_request(560)
         .build();
+    window.add_css_class("mirelay");
 
     let title = adw::WindowTitle::new("MiRelay", "Folder");
     let header = adw::HeaderBar::builder().title_widget(&title).build();
+    header.pack_start(&brand::about_button(&window));
 
     let refresh_button = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
@@ -936,8 +1364,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .build();
     settings_button.add_css_class("flat");
 
-    let sync_spinner = gtk::Spinner::new();
-    sync_spinner.set_size_request(16, 16);
+    let sync_spinner = loading_ring(16);
     let sync_icon = gtk::Image::from_icon_name("folder-download-symbolic");
     sync_icon.set_pixel_size(16);
     let sync_indicator = gtk::Stack::builder()
@@ -983,34 +1410,83 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
 
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sidebar.add_css_class("bridge-sidebar");
-    sidebar.set_width_request(280);
+    sidebar.set_width_request(216);
 
     let sidebar_heading = gtk::Box::new(gtk::Orientation::Vertical, 5);
     sidebar_heading.add_css_class("sidebar-heading");
-    let heading_line = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let heading_line = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     let sidebar_title = gtk::Label::builder()
         .label("Folder")
         .xalign(0.0)
         .hexpand(true)
         .build();
     sidebar_title.add_css_class("sidebar-title");
-    let bridge_count_label = gtk::Label::builder().label("0").xalign(1.0).build();
-    bridge_count_label.add_css_class("secondary-text");
+    let folder_sort_button = sort_button(
+        "win.folder-sort",
+        "Sort Folders",
+        &[
+            SortField {
+                label: "Name",
+                directions: [
+                    (FolderSort::NameAsc.key(), "Ascending (A–Z)"),
+                    (FolderSort::NameDesc.key(), "Descending (Z–A)"),
+                ],
+            },
+            SortField {
+                label: "Last received",
+                directions: [
+                    (FolderSort::Oldest.key(), "Ascending (oldest first)"),
+                    (FolderSort::Recent.key(), "Descending (newest first)"),
+                ],
+            },
+        ],
+    );
+
+    let folder_search = gtk::SearchEntry::builder()
+        .placeholder_text("Filter by name…")
+        .width_request(220)
+        .build();
+    let filter_content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    filter_content.add_css_class("folder-filter");
+    filter_content.append(&folder_search);
+    filter_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let mut group: Option<gtk::CheckButton> = None;
+    for filter in [
+        FolderFilter::All,
+        FolderFilter::Attention,
+        FolderFilter::Pending,
+        FolderFilter::NewFiles,
+    ] {
+        let choice = gtk::CheckButton::with_label(filter.label());
+        choice.set_group(group.as_ref());
+        choice.set_action_name(Some("win.folder-filter"));
+        choice.set_action_target_value(Some(&filter.key().to_variant()));
+        if group.is_none() {
+            group = Some(choice.clone());
+        }
+        filter_content.append(&choice);
+    }
+    let clear_filters = gtk::Button::with_label("Clear Filters");
+    clear_filters.set_action_name(Some("win.clear-folder-filters"));
+    clear_filters.add_css_class("flat");
+    filter_content.append(&clear_filters);
+    let filter_popover = gtk::Popover::builder().child(&filter_content).build();
+    let folder_filter_button = gtk::MenuButton::builder()
+        .icon_name("system-search-symbolic")
+        .tooltip_text("Filter Folders")
+        .popover(&filter_popover)
+        .build();
+    folder_filter_button.add_css_class("flat");
     let add_bridge_button = gtk::Button::builder()
         .icon_name("list-add-symbolic")
         .tooltip_text("Add Folder")
         .build();
     add_bridge_button.add_css_class("flat");
     heading_line.append(&sidebar_title);
-    heading_line.append(&bridge_count_label);
+    heading_line.append(&folder_sort_button);
+    heading_line.append(&folder_filter_button);
     heading_line.append(&add_bridge_button);
-    let sidebar_subtitle = gtk::Label::builder()
-        .label("Managed folders")
-        .xalign(0.0)
-        .build();
-    sidebar_subtitle.add_css_class("secondary-text");
     sidebar_heading.append(&heading_line);
-    sidebar_heading.append(&sidebar_subtitle);
     sidebar.append(&sidebar_heading);
 
     let bridge_list = gtk::ListBox::new();
@@ -1021,18 +1497,19 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .vexpand(true)
         .child(&bridge_list)
         .build();
-    sidebar.append(&bridge_scroll);
-
-    let sidebar_hint = gtk::Label::builder()
-        .label("One Folder, one delivery workflow")
-        .xalign(0.0)
-        .margin_start(20)
-        .margin_end(20)
-        .margin_top(12)
-        .margin_bottom(16)
-        .build();
-    sidebar_hint.add_css_class("secondary-text");
-    sidebar.append(&sidebar_hint);
+    let no_results = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    no_results.add_css_class("sidebar-no-results");
+    let no_results_label = gtk::Label::new(Some("No matching Folders"));
+    no_results_label.add_css_class("secondary-text");
+    no_results.append(&no_results_label);
+    let clear_filters = gtk::Button::with_label("Clear Filters");
+    clear_filters.add_css_class("flat");
+    clear_filters.set_action_name(Some("win.clear-folder-filters"));
+    no_results.append(&clear_filters);
+    let sidebar_results = gtk::Stack::builder().vexpand(true).build();
+    sidebar_results.add_named(&bridge_scroll, Some("list"));
+    sidebar_results.add_named(&no_results, Some("empty"));
+    sidebar.append(&sidebar_results);
 
     let empty_action = gtk::Button::with_label("Add Folder");
     empty_action.add_css_class("suggested-action");
@@ -1046,13 +1523,13 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     empty_page.set_vexpand(true);
 
     let bridge_icon = gtk::Image::from_icon_name("folder-symbolic");
-    bridge_icon.set_pixel_size(36);
+    bridge_icon.set_pixel_size(24);
     bridge_icon.add_css_class("bridge-hero-icon");
     bridge_icon.set_valign(gtk::Align::Start);
     let bridge_name = gtk::Label::builder()
         .label("—")
         .xalign(0.0)
-        .wrap(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
         .build();
     bridge_name.add_css_class("bridge-title");
     let bridge_path = gtk::Label::builder()
@@ -1063,7 +1540,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .hexpand(true)
         .build();
     bridge_path.add_css_class("secondary-text");
-    let bridge_titles = gtk::Box::new(gtk::Orientation::Vertical, 5);
+    let bridge_titles = gtk::Box::new(gtk::Orientation::Vertical, 3);
     bridge_titles.set_hexpand(true);
     bridge_titles.append(&bridge_name);
     bridge_titles.append(&bridge_path);
@@ -1073,7 +1550,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .sensitive(false)
         .valign(gtk::Align::Center)
         .build();
-    let bridge_heading = gtk::Box::new(gtk::Orientation::Horizontal, 18);
+    let bridge_heading = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     bridge_heading.append(&bridge_icon);
     bridge_heading.append(&bridge_titles);
     bridge_heading.append(&open_library_button);
@@ -1083,7 +1560,12 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     bridge_state_icon.add_css_class("state-success");
     let bridge_state = gtk::Label::builder().label("Ready").xalign(0.0).build();
     bridge_state.add_css_class("bridge-status");
-    let summary_label = gtk::Label::builder().label("Loading…").xalign(0.0).build();
+    let summary_label = gtk::Label::builder()
+        .label("Loading…")
+        .xalign(0.0)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
     summary_label.add_css_class("secondary-text");
     let state_line = gtk::Box::new(gtk::Orientation::Horizontal, 7);
     state_line.append(&bridge_state_icon);
@@ -1111,50 +1593,136 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     property_group.append(&wallpaper_property);
 
     let activity_title = gtk::Label::builder()
-        .label("Recent Transfers")
+        .label("Files")
         .xalign(0.0)
         .hexpand(true)
         .build();
     activity_title.add_css_class("activity-title");
-    let activity_caption = gtk::Label::builder()
-        .label("Folder activity")
-        .xalign(1.0)
-        .build();
-    activity_caption.add_css_class("secondary-text");
-    let activity_header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let activity_header = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     activity_header.add_css_class("activity-header");
     activity_header.append(&activity_title);
-    activity_header.append(&activity_caption);
+
+    let file_sort_button = sort_button(
+        "win.file-sort",
+        "Sort Files · active transfers always first",
+        &[
+            SortField {
+                label: "Name",
+                directions: [
+                    (FileSort::NameAsc.key(), "Ascending (A–Z)"),
+                    (FileSort::NameDesc.key(), "Descending (Z–A)"),
+                ],
+            },
+            SortField {
+                label: "Date received",
+                directions: [
+                    (FileSort::Oldest.key(), "Ascending (oldest first)"),
+                    (FileSort::Newest.key(), "Descending (newest first)"),
+                ],
+            },
+            SortField {
+                label: "Size",
+                directions: [
+                    (FileSort::Smallest.key(), "Ascending (smallest first)"),
+                    (FileSort::Largest.key(), "Descending (largest first)"),
+                ],
+            },
+        ],
+    );
+    let file_search = gtk::SearchEntry::builder()
+        .placeholder_text("Filter files by name…")
+        .width_request(230)
+        .build();
+    let file_filter_content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    file_filter_content.add_css_class("folder-filter");
+    file_filter_content.append(&file_search);
+    let file_kind = gtk::DropDown::from_strings(&FILE_KINDS.map(|kind| kind.label()));
+    file_kind.set_tooltip_text(Some("File type"));
+    file_kind.update_property(&[gtk::accessible::Property::Label("File type")]);
+    file_filter_content.append(&file_kind);
+    file_filter_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let mut group: Option<gtk::CheckButton> = None;
+    for filter in [
+        FileFilter::All,
+        FileFilter::InProgress,
+        FileFilter::Attention,
+        FileFilter::Completed,
+    ] {
+        let choice = gtk::CheckButton::with_label(filter.label());
+        choice.set_group(group.as_ref());
+        choice.set_action_name(Some("win.file-filter"));
+        choice.set_action_target_value(Some(&filter.key().to_variant()));
+        if group.is_none() {
+            group = Some(choice.clone());
+        }
+        file_filter_content.append(&choice);
+    }
+    let clear_files = gtk::Button::with_label("Clear Filters");
+    clear_files.add_css_class("flat");
+    clear_files.set_action_name(Some("win.clear-file-filters"));
+    file_filter_content.append(&clear_files);
+    let file_filter_button = gtk::MenuButton::builder()
+        .icon_name("system-search-symbolic")
+        .tooltip_text("Filter Files")
+        .popover(&gtk::Popover::builder().child(&file_filter_content).build())
+        .build();
+    file_filter_button.add_css_class("flat");
+    activity_header.append(&file_sort_button);
+    activity_header.append(&file_filter_button);
 
     let delivery_list = gtk::ListBox::new();
     delivery_list.add_css_class("activity-list");
     delivery_list.set_selection_mode(gtk::SelectionMode::None);
-    let activity_empty = adw::StatusPage::builder()
-        .icon_name("document-send-symbolic")
-        .title("No transfers yet")
-        .description("Received files will appear here.")
+    let activity_empty = gtk::Label::builder()
+        .label("Received files will appear here.")
+        .xalign(0.0)
+        .wrap(true)
         .build();
-    activity_empty.set_height_request(210);
-    let activity_stack = gtk::Stack::builder()
-        .transition_type(gtk::StackTransitionType::Crossfade)
-        .build();
-    activity_stack.add_named(&activity_empty, Some("empty"));
-    activity_stack.add_named(&delivery_list, Some("list"));
-    activity_stack.set_visible_child_name("empty");
-
-    let bridge_kicker = gtk::Label::builder()
-        .label("MIRELAY FOLDER")
+    activity_empty.add_css_class("secondary-text");
+    let activity_empty_title = gtk::Label::builder()
+        .label("No transfers yet")
         .xalign(0.0)
         .build();
-    bridge_kicker.add_css_class("bridge-kicker");
-    let bridge_page = gtk::Box::new(gtk::Orientation::Vertical, 22);
+    activity_empty_title.add_css_class("activity-title");
+    let activity_empty_text = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    activity_empty_text.set_hexpand(true);
+    activity_empty_text.append(&activity_empty_title);
+    activity_empty_text.append(&activity_empty);
+    let activity_empty_icon = gtk::Image::from_icon_name("folder-download-symbolic");
+    activity_empty_icon.set_pixel_size(24);
+    activity_empty_icon.add_css_class("secondary-text");
+    let activity_empty_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    activity_empty_box.add_css_class("activity-empty");
+    activity_empty_box.append(&activity_empty_icon);
+    activity_empty_box.append(&activity_empty_text);
+    let activity_stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .vhomogeneous(false)
+        .build();
+    activity_stack.add_named(&activity_empty_box, Some("empty"));
+    activity_stack.add_named(&delivery_list, Some("list"));
+    let file_no_results = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    file_no_results.add_css_class("activity-empty");
+    file_no_results.append(&gtk::Label::new(Some("No matching files")));
+    let clear_files = gtk::Button::with_label("Clear Filters");
+    clear_files.add_css_class("flat");
+    clear_files.set_action_name(Some("win.clear-file-filters"));
+    file_no_results.append(&clear_files);
+    activity_stack.add_named(&file_no_results, Some("no-results"));
+    activity_stack.set_visible_child_name("empty");
+    let file_show_more = gtk::Button::with_label("Show More");
+    file_show_more.add_css_class("flat");
+    file_show_more.set_action_name(Some("win.more-files"));
+    file_show_more.set_visible(false);
+
+    let bridge_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
     bridge_page.add_css_class("bridge-page");
-    bridge_page.append(&bridge_kicker);
     bridge_page.append(&bridge_heading);
     bridge_page.append(&state_line);
     bridge_page.append(&property_group);
     bridge_page.append(&activity_header);
     bridge_page.append(&activity_stack);
+    bridge_page.append(&file_show_more);
 
     let bridge_clamp = adw::Clamp::new();
     bridge_clamp.set_maximum_size(860);
@@ -1191,7 +1759,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     workspace.add_css_class("workspace");
     workspace.set_start_child(Some(&sidebar));
     workspace.set_end_child(Some(&content_stack));
-    workspace.set_position(300);
+    workspace.set_position(232);
     workspace.set_resize_start_child(false);
     workspace.set_shrink_start_child(false);
     workspace.set_shrink_end_child(false);
@@ -1213,7 +1781,6 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             refresh_button,
             sync_button,
             sync_indicator,
-            sync_spinner,
             sync_label,
             add_bridge_button,
             settings_button,
@@ -1221,8 +1788,11 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             error_revealer,
             error_label,
             toast_overlay,
-            bridge_count_label,
             bridge_list,
+            sidebar_results,
+            folder_sort_button,
+            folder_filter_button,
+            folder_search,
             summary_label,
             content_stack,
             empty_page,
@@ -1242,9 +1812,353 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             activity_stack,
             activity_empty,
             delivery_list,
+            file_sort_button,
+            file_filter_button,
+            file_search,
+            file_kind,
+            file_show_more,
         },
         error_close,
     )
+}
+
+// Run only through --sidebar-smoke-test with a disposable registry (no network work).
+fn sidebar_smoke_checks(ui: &DesktopUi) -> Result<()> {
+    use anyhow::ensure;
+    let activate = |name: &str, target: Option<&str>| {
+        ui.widgets
+            .window
+            .lookup_action(name)
+            .unwrap()
+            .activate(target.map(|value| value.to_variant()).as_ref());
+    };
+    let original = ui.selected_bridge_id.borrow().clone();
+    let original_registry = ui.paths.registry.load()?;
+    let original_views = ui.bridges.borrow().clone();
+    ensure!(
+        ui.bridges.borrow().len() >= 2,
+        "provide at least two preview Folders"
+    );
+    ensure!(
+        ui.unread_folders.borrow().is_empty(),
+        "initial records should not be marked new"
+    );
+    file_smoke::check_sort_controls(
+        &ui.widgets.folder_sort_button,
+        "win.folder-sort",
+        &[
+            ("Name", ["name-asc", "name-desc"]),
+            ("Last received", ["oldest", "recent"]),
+        ],
+    )?;
+    file_smoke::check_sort_focus(&ui.widgets.folder_sort_button, "name-asc")?;
+    let ascending = ui.bridge_ids.borrow().clone();
+    file_smoke::click_sort_direction(&ui.widgets.folder_sort_button, "name-desc")?;
+    ensure!(
+        ui.bridge_ids.borrow().iter().eq(ascending.iter().rev()),
+        "descending sort did not reorder the GTK list"
+    );
+    for sort in ["oldest", "recent", "name-asc", "name-desc"] {
+        file_smoke::click_sort_direction(&ui.widgets.folder_sort_button, sort)?;
+        ensure!(
+            ui.folder_sort.get().key() == sort,
+            "sort triangle did not update the Folder model"
+        );
+        ensure!(
+            ui.selected_bridge_id.borrow().as_ref() == original.as_ref(),
+            "sort triangle changed the current Folder"
+        );
+    }
+    activate("folder-sort", Some("recent"));
+    file_smoke::check_sort_focus(&ui.widgets.folder_sort_button, "recent")?;
+    ensure!(
+        ui.selected_bridge_id.borrow().as_ref() == original.as_ref(),
+        "sorting changed selection"
+    );
+
+    ui.widgets
+        .folder_search
+        .set_text("no-such-folder-for-smoke-check");
+    ensure!(
+        ui.bridge_ids.borrow().is_empty(),
+        "name filter did not apply"
+    );
+    ensure!(
+        ui.widgets.sidebar_results.visible_child_name().as_deref() == Some("empty"),
+        "missing no-results state"
+    );
+    ensure!(
+        ui.selected_bridge_id.borrow().as_ref() == original.as_ref(),
+        "filtering hid the current detail"
+    );
+    ensure!(
+        ui.paths.registry.load()? == original_registry,
+        "view controls wrote to registry"
+    );
+    activate("clear-folder-filters", None);
+    for filter in ["attention", "pending", "new-files"] {
+        activate("folder-filter", Some(filter));
+        ensure!(
+            ui.selected_bridge_id.borrow().as_ref() == original.as_ref(),
+            "status filtering changed selection"
+        );
+    }
+    ensure!(
+        ui.bridge_ids.borrow().is_empty(),
+        "no unread folders expected initially"
+    );
+    activate("clear-folder-filters", None);
+
+    // Simulate a new delivery on a non-selected Folder without touching transfer state.
+    let target = ui
+        .bridges
+        .borrow()
+        .iter()
+        .find(|view| {
+            Some(&view.registration.id) != original.as_ref()
+                && view
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| !snapshot.deliveries.is_empty())
+        })
+        .cloned()
+        .context("preview needs a non-selected Folder with a sample record")?;
+    let mut next = target.snapshot.clone().unwrap();
+    let mut record = next.deliveries[0].clone();
+    record.id = "sidebar-smoke-new-delivery".into();
+    Arc::make_mut(&mut next.deliveries).push(record);
+    ui.update_bridge_snapshot(&target.registration.id, next);
+    ensure!(
+        ui.unread_folders.borrow().contains(&target.registration.id),
+        "new delivery was not marked unread"
+    );
+    activate("folder-filter", Some("new-files"));
+    ensure!(
+        *ui.bridge_ids.borrow() == vec![target.registration.id.clone()],
+        "unread filter did not find updated Folder"
+    );
+    // Use a real GTK selection event, not just a direct call to the handler.
+    ui.widgets
+        .bridge_list
+        .select_row(ui.widgets.bridge_list.row_at_index(0).as_ref());
+    ensure!(
+        ui.selected_bridge_id.borrow().as_deref() == Some(&target.registration.id),
+        "filtered row opened wrong Folder"
+    );
+    ensure!(
+        !ui.unread_folders.borrow().contains(&target.registration.id),
+        "opening Folder did not clear unread notice"
+    );
+    ensure!(
+        ui.bridge_ids.borrow().is_empty(),
+        "read Folder stayed in new-files filter"
+    );
+    ui.update_bridge_snapshot(&target.registration.id, target.snapshot.unwrap());
+    activate("clear-folder-filters", None);
+    activate("folder-sort", Some("name-asc"));
+    let mut refreshed = original_views.clone();
+    if let Some(snapshot) = refreshed
+        .iter_mut()
+        .find(|view| Some(&view.registration.id) == original.as_ref())
+        .and_then(|view| view.snapshot.as_mut())
+        && let Some(mut record) = snapshot.deliveries.first().cloned()
+    {
+        record.id = "sidebar-smoke-refresh-delivery".into();
+        Arc::make_mut(&mut snapshot.deliveries).push(record);
+    }
+    ui.handle_worker_message(WorkerMessage::Loaded(Ok(RegistrySnapshot {
+        bridges: refreshed,
+        selected_bridge_id: original.clone(),
+    })));
+    ensure!(
+        ui.unread_folders.borrow().is_empty(),
+        "registry-selected Folder retained its unread marker"
+    );
+    // Restore the model, then exercise real selection to restore the on-disk registry.
+    ui.bridges.replace(original_views);
+    ui.selected_bridge_id.replace(None);
+    if let Some(original) = original {
+        let index = ui
+            .bridge_ids
+            .borrow()
+            .iter()
+            .position(|id| id == &original)
+            .unwrap();
+        ui.select_bridge_at(index as i32);
+    }
+    ensure!(
+        ui.paths.registry.load()? == original_registry,
+        "test did not restore selection"
+    );
+    Ok(())
+}
+
+fn install_file_actions(ui: &Rc<DesktopUi>) {
+    let sort = gio::SimpleAction::new_stateful(
+        "file-sort",
+        Some(glib::VariantTy::STRING),
+        &FileSort::default().key().to_variant(),
+    );
+    {
+        let ui = Rc::clone(ui);
+        sort.connect_activate(move |_, value| {
+            if let Some(sort) = value
+                .and_then(|value| value.str())
+                .and_then(FileSort::from_key)
+            {
+                ui.change_file_view(true, |view| view.sort = sort);
+            }
+        });
+    }
+    ui.widgets.window.add_action(&sort);
+    let filter = gio::SimpleAction::new_stateful(
+        "file-filter",
+        Some(glib::VariantTy::STRING),
+        &FileFilter::default().key().to_variant(),
+    );
+    {
+        let ui = Rc::clone(ui);
+        filter.connect_activate(move |_, value| {
+            if let Some(filter) = value
+                .and_then(|value| value.str())
+                .and_then(FileFilter::from_key)
+            {
+                ui.change_file_view(true, |view| view.filter = filter);
+            }
+        });
+    }
+    ui.widgets.window.add_action(&filter);
+    let kind = gio::SimpleAction::new_stateful(
+        "file-kind",
+        Some(glib::VariantTy::STRING),
+        &FileKind::default().key().to_variant(),
+    );
+    {
+        let ui = Rc::clone(ui);
+        kind.connect_activate(move |_, value| {
+            if let Some(kind) = value
+                .and_then(|value| value.str())
+                .and_then(FileKind::from_key)
+            {
+                ui.change_file_view(true, |view| view.kind = kind);
+            }
+        });
+    }
+    ui.widgets.window.add_action(&kind);
+    {
+        let ui = Rc::clone(ui);
+        let dropdown = ui.widgets.file_kind.clone();
+        dropdown.connect_selected_notify(move |dropdown| {
+            if !ui.rendering_file_controls.get()
+                && let Some(kind) = FILE_KINDS.get(dropdown.selected() as usize)
+            {
+                ui.widgets
+                    .window
+                    .lookup_action("file-kind")
+                    .unwrap()
+                    .activate(Some(&kind.key().to_variant()));
+            }
+        });
+    }
+    {
+        let ui = Rc::clone(ui);
+        let search = ui.widgets.file_search.clone();
+        search.connect_changed(move |search| {
+            if !ui.rendering_file_controls.get() {
+                ui.change_file_view(true, |view| view.query = search.text().to_string());
+            }
+        });
+    }
+    let clear = gio::SimpleAction::new("clear-file-filters", None);
+    {
+        let ui = Rc::clone(ui);
+        clear.connect_activate(move |_, _| {
+            ui.change_file_view(true, |view| {
+                view.query.clear();
+                view.filter = FileFilter::All;
+                view.kind = FileKind::All;
+            })
+        });
+    }
+    ui.widgets.window.add_action(&clear);
+    let more = gio::SimpleAction::new("more-files", None);
+    {
+        let ui = Rc::clone(ui);
+        more.connect_activate(move |_, _| {
+            ui.change_file_view(false, |view| {
+                view.limit = view.limit.saturating_add(FILE_PAGE_SIZE)
+            })
+        });
+    }
+    ui.widgets.window.add_action(&more);
+}
+
+fn install_folder_actions(ui: &Rc<DesktopUi>, application: &adw::Application) {
+    let sort_action = gio::SimpleAction::new_stateful(
+        "folder-sort",
+        Some(glib::VariantTy::STRING),
+        &FolderSort::default().key().to_variant(),
+    );
+    {
+        let ui = Rc::clone(ui);
+        sort_action.connect_activate(move |action, parameter| {
+            let Some(sort) = parameter
+                .and_then(|value| value.str())
+                .and_then(FolderSort::from_key)
+            else {
+                return;
+            };
+            action.set_state(&sort.key().to_variant());
+            ui.folder_sort.set(sort);
+            ui.render_bridge_list();
+        });
+    }
+    ui.widgets.window.add_action(&sort_action);
+
+    let filter_action = gio::SimpleAction::new_stateful(
+        "folder-filter",
+        Some(glib::VariantTy::STRING),
+        &FolderFilter::default().key().to_variant(),
+    );
+    {
+        let ui = Rc::clone(ui);
+        filter_action.connect_activate(move |action, parameter| {
+            let Some(filter) = parameter
+                .and_then(|value| value.str())
+                .and_then(FolderFilter::from_key)
+            else {
+                return;
+            };
+            action.set_state(&filter.key().to_variant());
+            ui.folder_filter.set(filter);
+            ui.render_bridge_list();
+        });
+    }
+    ui.widgets.window.add_action(&filter_action);
+    let clear_action = gio::SimpleAction::new("clear-folder-filters", None);
+    {
+        let ui = Rc::clone(ui);
+        clear_action.connect_activate(move |_, _| {
+            ui.widgets.folder_search.set_text("");
+            filter_action.activate(Some(&FolderFilter::All.key().to_variant()));
+        });
+    }
+    ui.widgets.window.add_action(&clear_action);
+    {
+        let ui = Rc::clone(ui);
+        let search = ui.widgets.folder_search.clone();
+        search.connect_changed(move |_| ui.render_bridge_list());
+    }
+    let search_action = gio::SimpleAction::new("find-folder", None);
+    {
+        let ui = Rc::clone(ui);
+        search_action.connect_activate(move |_, _| {
+            ui.widgets.folder_filter_button.popup();
+            ui.widgets.folder_search.grab_focus();
+        });
+    }
+    ui.widgets.window.add_action(&search_action);
+    application.set_accels_for_action("win.find-folder", &["<Primary>f"]);
 }
 
 impl DesktopUi {
@@ -1278,7 +2192,7 @@ impl DesktopUi {
     }
 
     fn start_auto_sync(&self) {
-        if self.busy.get() {
+        if self.busy.get() || self.editor_open.get() {
             return;
         }
         let tokens = self.tokens.borrow();
@@ -1305,8 +2219,17 @@ impl DesktopUi {
         }
         let registry = self.paths.registry.clone();
         let sender = self.sender.clone();
+        for request in &requests {
+            self.file_activity.borrow_mut().remove(&request.bridge_id);
+        }
         std::thread::spawn(move || {
-            let outcomes = execute_sync_requests(&registry, requests);
+            let outcomes =
+                execute_sync_requests_with_events(&registry, requests, &|bridge_id, event| {
+                    let _ = sender.send(WorkerMessage::FileProgress {
+                        bridge_id: bridge_id.to_owned(),
+                        event,
+                    });
+                });
             let _ = sender.send(WorkerMessage::Synced {
                 automatic,
                 outcomes,
@@ -1326,22 +2249,56 @@ impl DesktopUi {
         self.widgets
             .sync_indicator
             .set_visible_child_name("spinner");
-        self.widgets.sync_spinner.start();
         true
     }
 
     fn finish_task(&self) {
         self.busy.set(false);
         self.widgets.sync_label.set_label("Receive");
-        self.widgets.sync_spinner.stop();
         self.widgets.sync_indicator.set_visible_child_name("icon");
         self.update_action_sensitivity();
     }
 
     fn handle_worker_message(&self, message: WorkerMessage) {
+        if let WorkerMessage::FileProgress { bridge_id, event } = message {
+            self.handle_file_progress(&bridge_id, event);
+            return;
+        }
         self.finish_task();
         match message {
+            WorkerMessage::FileProgress { .. } => {
+                unreachable!("progress handled without completing task")
+            }
             WorkerMessage::Loaded(Ok(snapshot)) => {
+                // Initial load is the baseline, not a wave of "new file" notifications.
+                for next in &snapshot.bridges {
+                    if let Some(previous) = self
+                        .bridges
+                        .borrow()
+                        .iter()
+                        .find(|view| view.registration.id == next.registration.id)
+                        && let (Some(previous), Some(next_snapshot)) =
+                            (&previous.snapshot, &next.snapshot)
+                    {
+                        self.note_new_deliveries(&next.registration.id, previous, next_snapshot);
+                    }
+                }
+                let retained: HashSet<_> = snapshot
+                    .bridges
+                    .iter()
+                    .map(|view| view.registration.id.clone())
+                    .collect();
+                self.unread_folders
+                    .borrow_mut()
+                    .retain(|id| retained.contains(id));
+                self.sync_failed_folders
+                    .borrow_mut()
+                    .retain(|id| retained.contains(id));
+                self.file_views
+                    .borrow_mut()
+                    .retain(|id, _| retained.contains(id));
+                // Refresh establishes the persisted truth and dismisses transient failures.
+                self.file_activity.borrow_mut().clear();
                 self.bridges.replace(snapshot.bridges);
                 self.selected_bridge_id.replace(snapshot.selected_bridge_id);
                 self.render_bridge_list();
@@ -1368,8 +2325,43 @@ impl DesktopUi {
         let mut failures = Vec::new();
 
         for outcome in outcomes {
+            // Fatal errors can exit before a matching FileSettled event. Never leave a spinner running.
+            if let Some(activity) = self.file_activity.borrow_mut().get_mut(&outcome.bridge_id) {
+                for file in activity.values_mut().filter(|file| file.phase.is_some()) {
+                    file.phase = None;
+                    file.error = Some(
+                        outcome
+                            .result
+                            .as_ref()
+                            .err()
+                            .cloned()
+                            .or_else(|| {
+                                outcome.result.as_ref().ok().and_then(|result| {
+                                    result
+                                        .summary
+                                        .failures
+                                        .first()
+                                        .map(|failure| failure.message.clone())
+                                })
+                            })
+                            .unwrap_or_else(|| {
+                                "Transfer ended without a final file status. Refresh to check."
+                                    .into()
+                            }),
+                    );
+                }
+            }
             match outcome.result {
                 Ok(result) => {
+                    if result.summary.failures.is_empty() {
+                        self.sync_failed_folders
+                            .borrow_mut()
+                            .remove(&outcome.bridge_id);
+                    } else {
+                        self.sync_failed_folders
+                            .borrow_mut()
+                            .insert(outcome.bridge_id.clone());
+                    }
                     received += result.summary.received;
                     acknowledged += result.summary.acknowledged;
                     failures.extend(result.summary.failures.into_iter().map(|failure| {
@@ -1380,7 +2372,12 @@ impl DesktopUi {
                     }));
                     self.update_bridge_snapshot(&outcome.bridge_id, result.snapshot);
                 }
-                Err(error) => failures.push(format!("{}: {error}", outcome.bridge_name)),
+                Err(error) => {
+                    self.sync_failed_folders
+                        .borrow_mut()
+                        .insert(outcome.bridge_id);
+                    failures.push(format!("{}: {error}", outcome.bridge_name));
+                }
             }
         }
         self.render_bridge_list();
@@ -1424,7 +2421,7 @@ impl DesktopUi {
         match self.selected_bridge_id.borrow().clone() {
             Some(id) => show_bridge_editor(self, BridgeEditorMode::Edit(id)),
             None => show_bridge_editor(self, BridgeEditorMode::New),
-        }
+        };
     }
 
     fn select_bridge_at(&self, index: i32) {
@@ -1444,8 +2441,17 @@ impl DesktopUi {
             .update(|registry| registry.select(&bridge_id))
         {
             Ok(()) => {
+                let was_unread = self.unread_folders.borrow_mut().remove(&bridge_id);
                 self.selected_bridge_id.replace(Some(bridge_id));
-                self.render_current_bridge();
+                // Preserve row identity/focus during ordinary keyboard navigation.
+                if was_unread {
+                    self.render_bridge_list();
+                    if let Some(row) = self.widgets.bridge_list.selected_row() {
+                        row.grab_focus();
+                    }
+                } else {
+                    self.render_current_bridge();
+                }
                 self.hide_error();
             }
             Err(error) => {
@@ -1456,45 +2462,125 @@ impl DesktopUi {
     }
 
     fn update_bridge_snapshot(&self, bridge_id: &str, mut snapshot: BridgeSnapshot) {
+        // Settled events update shared list records before the final directory
+        // snapshot brings its retained-copy metadata. Rebuild visible rows once.
+        if snapshot.directory.is_some()
+            && self.selected_bridge_id.borrow().as_deref() == Some(bridge_id)
+        {
+            self.rendered_files.borrow_mut().clear();
+        }
         if let Some(bridge) = self
             .bridges
             .borrow_mut()
             .iter_mut()
             .find(|bridge| bridge.registration.id == bridge_id)
         {
+            if let Some(previous) = &bridge.snapshot {
+                self.note_new_deliveries(bridge_id, previous, &snapshot);
+            }
             snapshot.name.clone_from(&bridge.registration.name);
             bridge.snapshot = Some(snapshot);
             bridge.error = None;
         }
     }
 
-    fn render_bridge_list(&self) {
-        clear_list_box(&self.widgets.bridge_list);
-        let bridges = self.bridges.borrow();
-        self.bridge_ids.replace(
-            bridges
-                .iter()
-                .map(|bridge| bridge.registration.id.clone())
-                .collect(),
-        );
-        self.widgets
-            .bridge_count_label
-            .set_label(&bridges.len().to_string());
-        for bridge in bridges.iter() {
-            self.widgets.bridge_list.append(&bridge_row(bridge));
+    fn note_new_deliveries(
+        &self,
+        bridge_id: &str,
+        previous: &BridgeSnapshot,
+        next: &BridgeSnapshot,
+    ) {
+        if self.selected_bridge_id.borrow().as_deref() != Some(bridge_id)
+            && has_new_deliveries(previous, next)
+        {
+            self.unread_folders
+                .borrow_mut()
+                .insert(bridge_id.to_owned());
         }
-        drop(bridges);
+    }
 
-        if self.bridges.borrow().is_empty() {
-            self.selected_bridge_id.replace(None);
-            self.render_empty_state();
+    fn render_bridge_list(&self) {
+        // Rebuilding or reselecting rows emits GTK selection signals synchronously.
+        if self.rendering_list.replace(true) {
             return;
         }
         if self.selected_bridge().is_none() {
-            let first = self.bridges.borrow()[0].registration.id.clone();
-            self.selected_bridge_id.replace(Some(first));
+            let fallback = self
+                .bridges
+                .borrow()
+                .first()
+                .map(|view| view.registration.id.clone());
+            self.selected_bridge_id.replace(fallback);
+        }
+        // Also acknowledge a Folder selected by a registry refresh or removal fallback.
+        if let Some(selected) = self.selected_bridge_id.borrow().as_ref() {
+            self.unread_folders.borrow_mut().remove(selected);
+        }
+        clear_list_box(&self.widgets.bridge_list);
+        let bridges = self.bridges.borrow();
+        let query = self.widgets.folder_search.text();
+        let unread = self.unread_folders.borrow();
+        let failed = self.sync_failed_folders.borrow();
+        let ids = visible_folder_ids(
+            &bridges,
+            self.folder_sort.get(),
+            self.folder_filter.get(),
+            &query,
+            &unread,
+            &failed,
+        );
+        let no_matches = !bridges.is_empty() && ids.is_empty();
+        for id in &ids {
+            if let Some(bridge) = bridges.iter().find(|view| &view.registration.id == id) {
+                self.widgets.bridge_list.append(&bridge_row(
+                    bridge,
+                    unread.contains(id),
+                    failed.contains(id),
+                ));
+            }
+        }
+        self.bridge_ids.replace(ids);
+        drop(unread);
+        drop(failed);
+        drop(bridges);
+        self.widgets
+            .sidebar_results
+            .set_visible_child_name(if no_matches { "empty" } else { "list" });
+        let active = self.folder_filter.get() != FolderFilter::All || !query.trim().is_empty();
+        if active {
+            self.widgets
+                .folder_filter_button
+                .add_css_class("suggested-action");
+        } else {
+            self.widgets
+                .folder_filter_button
+                .remove_css_class("suggested-action");
+        }
+        self.widgets
+            .folder_filter_button
+            .set_tooltip_text(Some(&format!(
+                "Filter Folders · {}{}",
+                self.folder_filter.get().label(),
+                if query.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", query.trim())
+                }
+            )));
+        self.widgets
+            .folder_sort_button
+            .set_tooltip_text(Some(&format!(
+                "Sort Folders · {}",
+                self.folder_sort.get().label()
+            )));
+        if self.bridges.borrow().is_empty() {
+            self.selected_bridge_id.replace(None);
+            self.rendering_list.set(false);
+            self.render_empty_state();
+            return;
         }
         self.select_current_row();
+        self.rendering_list.set(false);
         self.render_current_bridge();
     }
 
@@ -1518,8 +2604,8 @@ impl DesktopUi {
 
     fn render_empty_state(&self) {
         self.widgets.title.set_subtitle("Folder");
-        self.widgets.bridge_count_label.set_label("0");
         clear_list_box(&self.widgets.delivery_list);
+        self.rendered_files.borrow_mut().clear();
         self.widgets.empty_page.set_title("No folders yet");
         self.widgets
             .empty_page
@@ -1572,6 +2658,9 @@ impl DesktopUi {
     fn render_snapshot(&self, snapshot: &BridgeSnapshot, auto_receive: bool) {
         self.widgets.title.set_subtitle("Folder");
         self.widgets.bridge_name.set_label(&snapshot.name);
+        self.widgets
+            .bridge_name
+            .set_tooltip_text(Some(&snapshot.name));
         let folder = snapshot.library_dir.to_string_lossy();
         self.widgets.bridge_path.set_label(&folder);
         self.widgets.bridge_path.set_tooltip_text(Some(&folder));
@@ -1604,21 +2693,277 @@ impl DesktopUi {
             .wallpaper_value
             .set_label(&snapshot.wallpaper_label);
         self.widgets
+            .wallpaper_value
+            .set_tooltip_text(Some(&snapshot.wallpaper_label));
+        self.widgets.summary_label.set_label(
+            &snapshot
+                .directory
+                .as_ref()
+                .map(|directory| {
+                    let conflicts = directory
+                        .files
+                        .values()
+                        .filter(|file| file.conflict)
+                        .count();
+                    format!(
+                        "Directory sync · {} paths · {} pending · {conflicts} conflicts",
+                        snapshot.counts.total, snapshot.counts.ack_pending
+                    )
+                })
+                .unwrap_or_else(|| summary_text(&snapshot.counts)),
+        );
+        self.widgets
             .summary_label
-            .set_label(&summary_text(&snapshot.counts));
-        clear_list_box(&self.widgets.delivery_list);
-        for record in snapshot.deliveries.iter().take(12) {
-            self.widgets.delivery_list.append(&delivery_row(record));
+            .set_tooltip_text(Some(&summary_text(&snapshot.counts)));
+        self.render_file_list(&snapshot.deliveries);
+        self.widgets.content_stack.set_visible_child_name("bridge");
+    }
+
+    fn change_file_view(&self, reset_limit: bool, change: impl FnOnce(&mut FileViewOptions)) {
+        let Some(id) = self.selected_bridge_id.borrow().clone() else {
+            return;
+        };
+        {
+            let mut views = self.file_views.borrow_mut();
+            let view = views.entry(id).or_default();
+            if reset_limit {
+                view.limit = FILE_PAGE_SIZE;
+            }
+            change(view);
         }
-        if snapshot.deliveries.is_empty() {
-            self.widgets
-                .activity_empty
-                .set_description(Some("Select Receive to see this Folder's activity here."));
-            self.widgets.activity_stack.set_visible_child_name("empty");
+        if let Some(snapshot) = self.selected_bridge().and_then(|view| view.snapshot) {
+            self.render_file_list(&snapshot.deliveries);
+        }
+    }
+
+    fn render_file_list(&self, records: &FileHistory) {
+        self.file_render_pending.set(false);
+        let Some(id) = self.selected_bridge_id.borrow().clone() else {
+            return;
+        };
+        let view = self
+            .file_views
+            .borrow()
+            .get(&id)
+            .cloned()
+            .unwrap_or_default();
+        let activity = self
+            .file_activity
+            .borrow()
+            .get(&id)
+            .map(|files| files.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        self.widgets.bridge_state.set_label(
+            activity
+                .iter()
+                .find_map(|file| file.phase)
+                .map(phase_label)
+                .unwrap_or("Ready"),
+        );
+        let page = records.page(
+            &activity,
+            view.sort,
+            view.filter,
+            view.kind,
+            &view.query,
+            view.limit,
+        );
+        let directory = self
+            .selected_bridge()
+            .and_then(|bridge| bridge.snapshot)
+            .and_then(|snapshot| {
+                snapshot
+                    .directory
+                    .map(|directory| (snapshot.library_dir, directory))
+            });
+        if *self.rendered_files.borrow() != page.entries {
+            let previous = self.rendered_files.borrow();
+            for (index, entry) in page.entries.iter().enumerate() {
+                if previous.get(index) == Some(entry) {
+                    continue;
+                }
+                if let Some(row) = self.widgets.delivery_list.row_at_index(index as i32) {
+                    self.widgets.delivery_list.remove(&row);
+                }
+                let row = if let Some((root, directory)) = &directory {
+                    let file = directory.files.get(entry.name()).filter(|file| {
+                        entry.id() == format!("directory:{}:{}", file.version, entry.name())
+                    });
+                    delivery_row_with_directory(entry, file.map(|file| (root.as_path(), file)))
+                } else {
+                    delivery_row(entry)
+                };
+                self.widgets.delivery_list.insert(&row, index as i32);
+            }
+            while let Some(row) = self
+                .widgets
+                .delivery_list
+                .row_at_index(page.entries.len() as i32)
+            {
+                self.widgets.delivery_list.remove(&row);
+            }
+            drop(previous);
+            self.rendered_files.replace(page.entries);
+        }
+        self.widgets
+            .file_show_more
+            .set_visible(page.total > view.limit);
+        if page.total == 0 {
+            if records.is_empty() && activity.is_empty() {
+                self.widgets
+                    .activity_empty
+                    .set_label(if directory.is_some() { "Initialize the source on Android, then select Receive. Existing Linux-only files stay unchanged." } else { "Select Receive to check for new files." });
+                self.widgets.activity_stack.set_visible_child_name("empty");
+            } else {
+                self.widgets
+                    .activity_stack
+                    .set_visible_child_name("no-results");
+            }
         } else {
             self.widgets.activity_stack.set_visible_child_name("list");
         }
-        self.widgets.content_stack.set_visible_child_name("bridge");
+        self.rendering_file_controls.set(true);
+        for (action, key) in [
+            ("file-sort", view.sort.key()),
+            ("file-filter", view.filter.key()),
+            ("file-kind", view.kind.key()),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(action)
+                .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
+            {
+                action.set_state(&key.to_variant());
+            }
+        }
+        if self.widgets.file_search.text().as_str() != view.query {
+            self.widgets.file_search.set_text(&view.query);
+        }
+        self.widgets.file_kind.set_selected(
+            FILE_KINDS
+                .iter()
+                .position(|kind| kind == &view.kind)
+                .unwrap() as u32,
+        );
+        self.rendering_file_controls.set(false);
+        let filtered = view.filter != FileFilter::All
+            || view.kind != FileKind::All
+            || !view.query.trim().is_empty();
+        if filtered {
+            self.widgets
+                .file_filter_button
+                .add_css_class("suggested-action");
+        } else {
+            self.widgets
+                .file_filter_button
+                .remove_css_class("suggested-action");
+        }
+        self.widgets
+            .file_filter_button
+            .set_tooltip_text(Some(&format!(
+                "Filter Files · {} · {}",
+                view.filter.label(),
+                view.kind.label()
+            )));
+        self.widgets
+            .file_sort_button
+            .set_tooltip_text(Some(&format!(
+                "Sort Files · {} · active transfers first",
+                view.sort.label()
+            )));
+    }
+
+    fn handle_file_progress(&self, bridge_id: &str, event: SyncEvent) {
+        if !self
+            .bridges
+            .borrow()
+            .iter()
+            .any(|view| view.registration.id == bridge_id)
+        {
+            return;
+        }
+        match event {
+            SyncEvent::FileActive {
+                id,
+                original_name,
+                media_type,
+                size,
+                phase,
+            } => {
+                let next = FileActivity {
+                    id,
+                    original_name,
+                    media_type,
+                    size,
+                    phase: Some(phase),
+                    error: None,
+                };
+                let mut activity = self.file_activity.borrow_mut();
+                let files = activity.entry(bridge_id.to_owned()).or_default();
+                if files.get(&next.id) == Some(&next) {
+                    return;
+                }
+                files.insert(next.id.clone(), next);
+            }
+            SyncEvent::FileSettled { id, record, error } => {
+                let previous = self
+                    .file_activity
+                    .borrow_mut()
+                    .entry(bridge_id.to_owned())
+                    .or_default()
+                    .remove(&id);
+                if let Some(error) = error {
+                    let activity = previous.or_else(|| {
+                        record.as_ref().map(|record| FileActivity {
+                            id: id.clone(),
+                            original_name: record.original_name.clone(),
+                            media_type: record.media_type.clone(),
+                            size: record.size,
+                            phase: None,
+                            error: None,
+                        })
+                    });
+                    if let Some(mut activity) = activity {
+                        activity.phase = None;
+                        activity.error = Some(error);
+                        self.file_activity
+                            .borrow_mut()
+                            .entry(bridge_id.to_owned())
+                            .or_default()
+                            .insert(id.clone(), activity);
+                    }
+                }
+                if let Some(record) = record
+                    && let Some(snapshot) = self
+                        .bridges
+                        .borrow_mut()
+                        .iter_mut()
+                        .find(|view| view.registration.id == bridge_id)
+                        .and_then(|view| view.snapshot.as_mut())
+                    && Arc::make_mut(&mut snapshot.deliveries).upsert(*record)
+                    && self.selected_bridge_id.borrow().as_deref() != Some(bridge_id)
+                {
+                    self.unread_folders
+                        .borrow_mut()
+                        .insert(bridge_id.to_owned());
+                }
+            }
+        }
+        if self.selected_bridge_id.borrow().as_deref() == Some(bridge_id) {
+            self.file_render_pending.set(true);
+            if !self.processing_worker_batch.get() {
+                self.flush_file_render();
+            }
+        }
+    }
+
+    fn flush_file_render(&self) {
+        if self.file_render_pending.replace(false)
+            && let Some(snapshot) = self.selected_bridge().and_then(|view| view.snapshot)
+        {
+            self.render_file_list(&snapshot.deliveries);
+        }
     }
 
     fn show_error(&self, message: &str) {
@@ -1667,7 +3012,10 @@ enum BridgeEditorMode {
     Edit(String),
 }
 
-fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
+fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) -> Option<adw::Window> {
+    if ui.busy.get() || ui.editor_open.get() {
+        return None;
+    }
     let registration = match &mode {
         BridgeEditorMode::New => None,
         BridgeEditorMode::Edit(id) => ui
@@ -1679,7 +3027,7 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
     };
     if matches!(mode, BridgeEditorMode::Edit(_)) && registration.is_none() {
         ui.show_error("The selected Folder no longer exists. Refresh and try again.");
-        return;
+        return None;
     }
     let (existing, config_error) = match registration.as_ref() {
         Some(bridge) => match load_editable_config(&bridge.config_path) {
@@ -1722,9 +3070,30 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
         .default_width(620)
         .default_height(560)
         .build();
+    dialog.add_css_class("mirelay");
+    ui.editor_open.set(true);
+    let weak_ui = Rc::downgrade(ui);
+    dialog.connect_hide(move |_| {
+        if let Some(ui) = weak_ui.upgrade() {
+            ui.editor_open.set(false);
+        }
+    });
     let dialog_root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let setup_task = pairing_panel::SetupTask::new(&dialog, &dialog_root);
+    {
+        let weak_ui = Rc::downgrade(ui);
+        let task = setup_task.clone();
+        dialog.connect_close_request(move |_| {
+            if !task.is_busy()
+                && let Some(ui) = weak_ui.upgrade()
+            {
+                ui.editor_open.set(false);
+            }
+            glib::Propagation::Proceed
+        });
+    }
     let header = adw::HeaderBar::new();
-    let title = adw::WindowTitle::new(dialog_title, "One Folder, one delivery workflow");
+    let title = adw::WindowTitle::new(dialog_title, "");
     header.set_title_widget(Some(&title));
     header.set_show_start_title_buttons(false);
     header.set_show_end_title_buttons(false);
@@ -1740,31 +3109,30 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
     header.pack_end(&save);
     dialog_root.append(&header);
 
-    let form = gtk::Box::new(gtk::Orientation::Vertical, 20);
+    let form = gtk::Box::new(gtk::Orientation::Vertical, 14);
     form.add_css_class("settings-page");
 
-    let folder_group = adw::PreferencesGroup::builder()
-        .title("Folder")
-        .description("Choose the local folder MiRelay will manage.")
-        .build();
+    let folder_group = adw::PreferencesGroup::builder().title("Folder").build();
     let name_entry = gtk::Entry::builder()
         .text(proposed_name)
         .placeholder_text("Uses the folder name when empty")
-        .width_chars(30)
+        .width_chars(18)
+        .max_width_chars(24)
+        .valign(gtk::Align::Center)
         .hexpand(true)
         .build();
-    let name_row = adw::ActionRow::builder()
-        .title("Display Name")
-        .subtitle("Shown in the Folder list")
-        .build();
+    let name_row = adw::ActionRow::builder().title("Display Name").build();
     name_row.add_suffix(&name_entry);
     folder_group.add(&name_row);
     let folder_entry = gtk::Entry::builder()
         .text(proposed_library_dir.to_string_lossy())
         .editable(is_new_bridge)
-        .width_chars(30)
+        .width_chars(18)
+        .max_width_chars(24)
+        .valign(gtk::Align::Center)
         .hexpand(true)
         .build();
+    folder_entry.set_widget_name("folder-path");
     let folder_button = gtk::Button::builder()
         .icon_name("folder-open-symbolic")
         .tooltip_text("Choose folder")
@@ -1774,31 +3142,65 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
     let folder_row = adw::ActionRow::builder()
         .title("Folder Path")
         .subtitle(if is_new_bridge {
-            "Files received by this Folder are stored here"
+            "Received files"
         } else {
-            "The folder path cannot be changed after creation"
+            "Fixed after creation"
         })
         .build();
     folder_row.add_suffix(&folder_entry);
     folder_row.add_suffix(&folder_button);
     folder_group.add(&folder_row);
 
-    let connection_group = adw::PreferencesGroup::builder()
-        .title("Connection")
-        .description("Connect this Folder to your MiRelay server.")
+    let directory_switch = gtk::Switch::builder()
+        .valign(gtk::Align::Center)
+        .active(
+            existing
+                .as_ref()
+                .is_some_and(|config| config.directory_sync),
+        )
+        .sensitive(is_new_bridge)
         .build();
+    directory_switch.set_widget_name("directory-mode");
+    let mode_row = adw::ActionRow::builder().title("Directory sync")
+        .subtitle("Android → Linux. Preserve names and subfolders; keep replaced copies. Mode is fixed after creation.")
+        .subtitle_lines(3).activatable_widget(&directory_switch).build();
+    mode_row.add_suffix(&directory_switch);
+    folder_group.add(&mode_row);
+    {
+        let save = save.clone();
+        directory_switch.connect_active_notify(move |toggle| {
+            save.set_label(if toggle.is_active() && is_new_bridge {
+                "Review directory…"
+            } else {
+                "Save"
+            })
+        });
+    }
+
+    let connection_group = adw::PreferencesGroup::builder().title("Connection").build();
     let url_entry = gtk::Entry::builder()
         .text(existing_url)
         .placeholder_text("https://relay.example.com")
-        .width_chars(28)
+        .width_chars(18)
+        .max_width_chars(24)
+        .hexpand(true)
+        .valign(gtk::Align::Center)
         .build();
     url_entry.set_input_purpose(gtk::InputPurpose::Url);
+    url_entry.set_editable(
+        !existing
+            .as_ref()
+            .is_some_and(|config| config.directory_sync),
+    );
     let url_row = adw::ActionRow::builder().title("Server URL").build();
     url_row.add_suffix(&url_entry);
     let token_entry = gtk::PasswordEntry::builder()
         .placeholder_text("Optional")
         .show_peek_icon(true)
-        .width_chars(28)
+        .width_chars(18)
+        .max_width_chars(24)
+        .hexpand(true)
+        .valign(gtk::Align::Center)
         .build();
     if let Some(token) = registration
         .as_ref()
@@ -1808,8 +3210,9 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
     }
     let token_row = adw::ActionRow::builder()
         .title("Session Token")
-        .subtitle(format!("Leave empty to read {token_env}"))
+        .subtitle("Optional for this session")
         .build();
+    token_entry.set_tooltip_text(Some(&format!("Leave empty to read {token_env}")));
     token_row.add_suffix(&token_entry);
     let insecure = gtk::Switch::builder().valign(gtk::Align::Center).build();
     insecure.set_active(existing_insecure);
@@ -1823,10 +3226,7 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
     connection_group.add(&token_row);
     connection_group.add(&insecure_row);
 
-    let automation_group = adw::PreferencesGroup::builder()
-        .title("Automation")
-        .description("Choose whether MiRelay checks this Folder in the background.")
-        .build();
+    let automation_group = adw::PreferencesGroup::builder().title("Automation").build();
     let auto_receive = gtk::Switch::builder().valign(gtk::Align::Center).build();
     auto_receive.set_active(existing_auto_receive);
     let auto_receive_row = adw::ActionRow::builder()
@@ -1864,6 +3264,16 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
 
     form.append(&folder_group);
     form.append(&connection_group);
+    form.append(&pairing_panel::panel(
+        &dialog,
+        &setup_task,
+        &name_entry,
+        &folder_entry,
+        &url_entry,
+        &token_entry,
+        &insecure,
+        is_new_bridge,
+    ));
     form.append(&automation_group);
     form.append(&privacy_group);
     form.append(&form_error);
@@ -1936,50 +3346,120 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) {
             } else {
                 requested_name
             };
-            let result = match &mode {
-                BridgeEditorMode::New => create_bridge(
-                    &ui.paths,
-                    bridge_name,
-                    library_dir,
-                    &server_url,
-                    insecure.is_active(),
-                    auto_receive.is_active(),
-                ),
-                BridgeEditorMode::Edit(id) => update_bridge(
-                    &ui.paths,
-                    id,
-                    bridge_name,
-                    &server_url,
-                    insecure.is_active(),
-                    auto_receive.is_active(),
-                ),
+            let allow_insecure = insecure.is_active();
+            let automatic = auto_receive.is_active();
+            let token = token_entry.text().trim().to_owned();
+            let verification_token = if token.is_empty() {
+                std::env::var(&token_env).unwrap_or_default()
+            } else {
+                token.clone()
             };
-            match result {
-                Ok(bridge_id) => {
-                    let token = token_entry.text().trim().to_owned();
-                    if token.is_empty() {
-                        ui.tokens.borrow_mut().remove(&bridge_id);
-                    } else {
-                        ui.tokens.borrow_mut().insert(bridge_id, token);
-                    }
-                    dialog.close();
-                    ui.start_load_all();
-                    ui.widgets
-                        .toast_overlay
-                        .add_toast(adw::Toast::new(if is_new_bridge {
-                            "Folder added"
-                        } else {
-                            "Folder settings saved"
-                        }));
-                }
-                Err(error) => {
-                    form_error.set_label(&safe_ui_message(&format!("{error:#}"), 2000));
-                    form_error.set_visible(true);
-                }
+            let (dialog, ui, mode, form_error) =
+                (dialog.clone(), ui.clone(), mode.clone(), form_error.clone());
+            let checked_url = server_url.clone();
+            form_error.set_label("Checking connection and Folder permission…");
+            form_error.set_visible(true);
+            if directory_switch.is_active() && is_new_bridge {
+                let paths = ui.paths.clone();
+                let secret = verification_token.clone();
+                let (ui, dialog, task, error) = (
+                    ui.clone(),
+                    dialog.clone(),
+                    setup_task.clone(),
+                    form_error.clone(),
+                );
+                setup_task.run(
+                    move || {
+                        directory_panel::prepare(
+                            &paths,
+                            bridge_name,
+                            library_dir,
+                            &server_url,
+                            allow_insecure,
+                            automatic,
+                            &secret,
+                        )
+                    },
+                    move |result| match result {
+                        Ok(prepared) => {
+                            error.set_visible(false);
+                            directory_panel::review(
+                                &ui,
+                                &dialog,
+                                &task,
+                                prepared,
+                                verification_token,
+                                &error,
+                            );
+                        }
+                        Err(failure) => {
+                            error.set_label(&safe_ui_message(&format!("{failure:#}"), 1800));
+                            error.set_visible(true);
+                        }
+                    },
+                );
+                return;
             }
+            setup_task.run(
+                move || {
+                    crate::pairing::PairingClient::new(
+                        &checked_url,
+                        &verification_token,
+                        allow_insecure,
+                    )?
+                    .verify_receiver()
+                },
+                move |checked| {
+                    if let Err(error) = checked {
+                        form_error.set_label(&safe_ui_message(&error.to_string(), 1000));
+                        return;
+                    }
+                    let result = match &mode {
+                        BridgeEditorMode::New => create_bridge(
+                            &ui.paths,
+                            bridge_name,
+                            library_dir,
+                            &server_url,
+                            allow_insecure,
+                            automatic,
+                        ),
+                        BridgeEditorMode::Edit(id) => update_bridge(
+                            &ui.paths,
+                            id,
+                            bridge_name,
+                            &server_url,
+                            allow_insecure,
+                            automatic,
+                        ),
+                    };
+                    match result {
+                        Ok(bridge_id) => {
+                            if token.is_empty() {
+                                ui.tokens.borrow_mut().remove(&bridge_id);
+                            } else {
+                                ui.tokens.borrow_mut().insert(bridge_id, token);
+                            }
+                            dialog.close();
+                            ui.start_load_all();
+                            ui.widgets
+                                .toast_overlay
+                                .add_toast(adw::Toast::new(if is_new_bridge {
+                                    "Folder added"
+                                } else {
+                                    "Folder settings saved"
+                                }));
+                        }
+                        Err(error) => {
+                            form_error.set_label(&safe_ui_message(&format!("{error:#}"), 2000));
+                            form_error.set_visible(true);
+                        }
+                    }
+                },
+            );
         });
     }
     dialog.present();
+    Some(dialog)
 }
 
 fn create_bridge(
@@ -2055,6 +3535,10 @@ fn update_bridge(
                 registration.config_path.display()
             )
         })?;
+        if config.directory_sync {
+            let ServerConfig::Http { base_url: previous, .. } = &config.server else { bail!("Invalid directory Folder."); };
+            anyhow::ensure!(previous == base_url, "A directory Folder's server cannot be changed. Create a new paired Folder instead.");
+        }
         set_http_server(&mut config, base_url, allow_insecure_http);
         config.validate()?;
         ensure_resources_unique(
@@ -2177,31 +3661,55 @@ fn load_registered_config(
     Ok(config)
 }
 
+#[cfg(test)]
 fn sync_registered_bridge(
     registry: &BridgeRegistryStore,
     bridge_id: &str,
     config_path: &Path,
     token: Option<&str>,
 ) -> Result<SyncResult> {
+    sync_registered_bridge_with_events(registry, bridge_id, config_path, token, &|_| {})
+}
+
+fn sync_registered_bridge_with_events(
+    registry: &BridgeRegistryStore,
+    bridge_id: &str,
+    config_path: &Path,
+    token: Option<&str>,
+    emit: &dyn Fn(SyncEvent),
+) -> Result<SyncResult> {
     let config = load_registered_config(registry, bridge_id, config_path)?;
+    if config.directory_sync {
+        return directory_panel::receive(config, token, emit);
+    }
     let source = source_for(&config, token)?;
-    let summary = sync_once(&config, source.as_ref())?;
+    let summary = sync_once_with_events(&config, source.as_ref(), emit)?;
     let snapshot = snapshot_from_config(config)?;
     Ok(SyncResult { summary, snapshot })
 }
 
+#[cfg(test)]
 fn execute_sync_requests(
     registry: &BridgeRegistryStore,
     requests: Vec<SyncRequest>,
 ) -> Vec<SyncOutcome> {
+    execute_sync_requests_with_events(registry, requests, &|_, _| {})
+}
+
+fn execute_sync_requests_with_events(
+    registry: &BridgeRegistryStore,
+    requests: Vec<SyncRequest>,
+    emit: &dyn Fn(&str, SyncEvent),
+) -> Vec<SyncOutcome> {
     requests
         .into_iter()
         .map(|request| {
-            let result = sync_registered_bridge(
+            let result = sync_registered_bridge_with_events(
                 registry,
                 &request.bridge_id,
                 &request.config_path,
                 request.token.as_deref(),
+                &|event| emit(&request.bridge_id, event),
             )
             .map_err(|error| format!("{error:#}"));
             SyncOutcome {
@@ -2247,6 +3755,9 @@ fn load_snapshot_and_resources(config_path: &Path) -> Result<(BridgeSnapshot, Br
 }
 
 fn snapshot_from_config(config: Config) -> Result<BridgeSnapshot> {
+    if config.directory_sync {
+        return directory_panel::snapshot(config);
+    }
     let store = StateStore::new(config.storage.state_file.clone());
     let state = {
         let _lock = store.lock_shared()?;
@@ -2293,7 +3804,8 @@ fn snapshot_from_config(config: Config) -> Result<BridgeSnapshot> {
         max_file_size_bytes: config.limits.max_file_size_bytes,
         wallpaper_label,
         counts,
-        deliveries,
+        deliveries: Arc::new(deliveries.into()),
+        directory: None,
     })
 }
 
@@ -2304,7 +3816,7 @@ fn sync_configured(config_path: &Path, token: Option<&str>) -> Result<SyncResult
     }
     let config = load_config_for_read(config_path)?;
     let source = source_for(&config, token)?;
-    let summary = sync_once(&config, source.as_ref())?;
+    let summary = crate::sync::sync_once(&config, source.as_ref())?;
     let snapshot = load_snapshot(config_path)?;
     Ok(SyncResult { summary, snapshot })
 }
@@ -2377,87 +3889,66 @@ fn persist_config(
     Ok(())
 }
 
-fn delivery_row(record: &DeliveryRecord) -> gtk::ListBoxRow {
+fn delivery_row(entry: &FileEntry) -> gtk::ListBoxRow {
+    delivery_row_with_directory(entry, None)
+}
+
+fn delivery_row_with_directory(
+    entry: &FileEntry,
+    directory: Option<(&Path, &crate::directory::receiver::Applied)>,
+) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.set_activatable(false);
     row.set_selectable(false);
-    row.set_tooltip_text(Some(&record.stored_path.to_string_lossy()));
+    let tooltip = match entry {
+        FileEntry::Saved(record) => format!(
+            "{}\n{}\n{}",
+            record.original_name,
+            record.stored_path.display(),
+            record
+                .delivery_error
+                .as_deref()
+                .or(record.wallpaper_error.as_deref())
+                .unwrap_or(if entry.is_complete() {
+                    "Completed"
+                } else {
+                    delivery_state(record).1
+                })
+        ),
+        FileEntry::Live(activity) => format!(
+            "{}\n{}",
+            activity.original_name,
+            activity
+                .error
+                .as_deref()
+                .unwrap_or_else(|| activity.phase.map(phase_label).unwrap_or("Waiting"))
+        ),
+    };
+    row.set_tooltip_text(Some(&safe_ui_message(&tooltip, 1600)));
 
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     content.add_css_class("delivery-row");
-    let icon = gtk::Image::from_icon_name(icon_for_media_type(&record.media_type));
-    icon.set_pixel_size(20);
+    let icon = gtk::Image::from_icon_name(icon_for_media_type(entry.media_type()));
+    icon.set_pixel_size(16);
     icon.add_css_class("mime-icon");
     content.append(&icon);
 
-    let text = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
     text.set_hexpand(true);
     let name = gtk::Label::builder()
-        .label(&record.original_name)
+        .label(entry.name())
         .xalign(0.0)
         .ellipsize(gtk::pango::EllipsizeMode::End)
         .build();
     name.add_css_class("delivery-name");
-    let details = gtk::Label::builder()
-        .label(format!(
+    name.set_tooltip_text(Some(entry.name()));
+    let details_text = match entry {
+        FileEntry::Saved(record) => format!(
             "{}  ·  {}",
             format_bytes(record.size),
             format_timestamp(record.received_at_unix)
-        ))
-        .xalign(0.0)
-        .ellipsize(gtk::pango::EllipsizeMode::End)
-        .build();
-    details.add_css_class("secondary-text");
-    text.append(&name);
-    text.append(&details);
-    content.append(&text);
-
-    let (state_icon, state_text, state_class) = delivery_state(record);
-    let state_image = gtk::Image::from_icon_name(state_icon);
-    state_image.set_pixel_size(13);
-    state_image.add_css_class(state_class);
-    let state_label = gtk::Label::new(Some(state_text));
-    state_label.add_css_class("row-state");
-    state_label.add_css_class(state_class);
-    let state = gtk::Box::new(gtk::Orientation::Horizontal, 5);
-    state.set_valign(gtk::Align::Center);
-    state.append(&state_image);
-    state.append(&state_label);
-    content.append(&state);
-
-    row.set_child(Some(&content));
-    row
-}
-
-fn bridge_row(bridge: &BridgeView) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-    row.set_activatable(true);
-    row.set_selectable(true);
-    row.set_tooltip_text(Some(&bridge.registration.config_path.to_string_lossy()));
-
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    content.add_css_class("bridge-row");
-    let icon = gtk::Image::from_icon_name("folder-symbolic");
-    icon.set_pixel_size(22);
-    icon.add_css_class("bridge-icon");
-    content.append(&icon);
-
-    let text = gtk::Box::new(gtk::Orientation::Vertical, 4);
-    text.set_hexpand(true);
-    let name = gtk::Label::builder()
-        .label(&bridge.registration.name)
-        .xalign(0.0)
-        .ellipsize(gtk::pango::EllipsizeMode::End)
-        .build();
-    name.add_css_class("bridge-name");
-    let details_text = if bridge.error.is_some() {
-        "Configuration needs attention".to_owned()
-    } else {
-        bridge
-            .snapshot
-            .as_ref()
-            .map(|snapshot| summary_text(&snapshot.counts))
-            .unwrap_or_else(|| "Loading…".to_owned())
+        ),
+        FileEntry::Live(_) => format_bytes(entry.size()),
     };
     let details = gtk::Label::builder()
         .label(details_text)
@@ -2468,29 +3959,134 @@ fn bridge_row(bridge: &BridgeView) -> gtk::ListBoxRow {
     text.append(&name);
     text.append(&details);
     content.append(&text);
-
-    let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    dot.add_css_class("bridge-dot");
-    if bridge.error.is_some() {
-        dot.add_css_class("state-error");
+    if let Some((root, file)) = directory {
+        details.set_label(&format!(
+            "{}  ·  Version {}",
+            format_bytes(entry.size()),
+            file.version
+        ));
+        if file.received_at_unix == 0 {
+            details.set_label(&format!("Version {} · Legacy record", file.version));
+        }
+        if let Some(button) = directory_panel::history_button(root, entry.name(), file) {
+            content.append(&button);
+        }
     }
-    dot.set_size_request(8, 8);
-    dot.set_halign(gtk::Align::Center);
-    dot.set_valign(gtk::Align::Center);
-    content.append(&dot);
+
+    // A completed file needs no permanent Received label, checkmark, or animation.
+    if entry.is_complete() {
+        row.set_child(Some(&content));
+        return row;
+    }
+    let (state_icon, state_text, state_class) = match entry {
+        FileEntry::Saved(_) if directory.is_some_and(|(_, file)| !file.acknowledged) => (
+            "emblem-synchronizing-symbolic",
+            "Awaiting receipt",
+            "state-pending",
+        ),
+        FileEntry::Saved(_) if directory.is_some_and(|(_, file)| file.conflict) => (
+            "dialog-warning-symbolic",
+            "Conflict copy kept",
+            "state-pending",
+        ),
+        FileEntry::Saved(record) => delivery_state(record),
+        FileEntry::Live(activity) => match activity.phase {
+            Some(phase) => (
+                "content-loading-symbolic",
+                phase_label(phase),
+                "secondary-text",
+            ),
+            None if activity.error.is_some() => {
+                ("dialog-warning-symbolic", "Needs attention", "state-error")
+            }
+            None => ("content-loading-symbolic", "Waiting", "state-pending"),
+        },
+    };
+    let state_label = gtk::Label::new(Some(state_text));
+    state_label.set_max_width_chars(18);
+    state_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    state_label.set_tooltip_text(Some(state_text));
+    state_label.add_css_class("row-state");
+    state_label.add_css_class(state_class);
+    let state = gtk::Box::new(gtk::Orientation::Horizontal, 5);
+    state.set_valign(gtk::Align::Center);
+    if entry.is_active() {
+        state.append(&loading_ring(16));
+    } else {
+        let state_image = gtk::Image::from_icon_name(state_icon);
+        state_image.set_pixel_size(16);
+        state_image.add_css_class(state_class);
+        state.append(&state_image);
+    }
+    state.append(&state_label);
+    content.append(&state);
+
+    row.set_child(Some(&content));
+    row
+}
+
+fn phase_label(phase: SyncPhase) -> &'static str {
+    match phase {
+        SyncPhase::Downloading => "Downloading",
+        SyncPhase::Verifying => "Verifying",
+        SyncPhase::Confirming => "Confirming",
+        SyncPhase::Retrying => "Retrying",
+        SyncPhase::ApplyingWallpaper => "Applying wallpaper",
+    }
+}
+
+fn bridge_row(bridge: &BridgeView, unread: bool, sync_failed: bool) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+    row.set_activatable(true);
+    row.set_selectable(true);
+    let notice = folder_notice(bridge, unread, sync_failed);
+    row.set_tooltip_text(Some(&format!(
+        "{}{}\n{}",
+        bridge.registration.name,
+        notice
+            .map(|notice| format!(" · {}", notice.label()))
+            .unwrap_or_default(),
+        bridge.registration.config_path.display()
+    )));
+
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    content.add_css_class("bridge-row");
+    let icon = gtk::Image::from_icon_name("folder-symbolic");
+    icon.set_pixel_size(16);
+    icon.add_css_class("bridge-icon");
+    content.append(&icon);
+
+    let name = gtk::Label::builder()
+        .label(&bridge.registration.name)
+        .xalign(0.0)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    name.add_css_class("bridge-name");
+    content.append(&name);
+    if let Some(notice) = notice {
+        let indicator = gtk::Image::from_icon_name(notice.icon_name());
+        indicator.set_pixel_size(16);
+        indicator.set_tooltip_text(Some(notice.label()));
+        indicator.add_css_class("folder-notice");
+        indicator.update_property(&[gtk::accessible::Property::Label(notice.label())]);
+        content.append(&indicator);
+    }
     row.set_child(Some(&content));
     row
 }
 
 fn property_row(title: &str) -> (gtk::Box, gtk::Label) {
-    let row = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 14);
     row.add_css_class("property-row");
     let title = gtk::Label::builder().label(title).xalign(0.0).build();
     title.add_css_class("property-title");
+    title.set_width_request(136);
     let value = gtk::Label::builder()
         .label("—")
         .xalign(0.0)
         .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::Middle)
         .build();
     value.add_css_class("property-value");
     row.append(&title);
@@ -2605,27 +4201,29 @@ fn clear_list_box(list: &gtk::ListBox) {
     }
 }
 
-fn capture_window(window: &adw::ApplicationWindow, path: &Path) -> Result<()> {
-    let width = window.width();
-    let height = window.height();
+fn capture_widget(widget: &gtk::Widget, path: &Path) -> Result<()> {
+    let width = widget.width();
+    let height = widget.height();
     if width <= 0 || height <= 0 {
-        bail!("window has not been laid out yet");
+        bail!("widget has not been laid out yet");
     }
-    let paintable = gtk::WidgetPaintable::new(Some(window));
+    let paintable = gtk::WidgetPaintable::new(Some(widget));
     let snapshot = gtk::Snapshot::new();
     paintable.snapshot(&snapshot, f64::from(width), f64::from(height));
     let node = snapshot
         .to_node()
         .context("window snapshot produced no render node")?;
-    let surface = window.surface().context("window has no native surface")?;
-    let renderer = gtk::gsk::Renderer::for_surface(&surface)
-        .context("no renderer is available for the window surface")?;
+    let renderer = widget
+        .native()
+        .and_then(|native| native.renderer())
+        .context("widget has no native renderer")?;
+    // Use the window's renderer without taking ownership of its lifecycle.
+    // Creating/unrealizing a second Cairo renderer can invalidate texture caches
+    // used by later snapshots of the same widget (e.g. after a theme change).
     let texture = renderer.render_texture(&node, None);
     texture
         .save_to_png(path)
-        .with_context(|| format!("failed to save {}", path.display()))?;
-    renderer.unrealize();
-    Ok(())
+        .with_context(|| format!("failed to save {}", path.display()))
 }
 
 fn install_css() {
@@ -2633,12 +4231,44 @@ fn install_css() {
         return;
     };
     let provider = gtk::CssProvider::new();
-    provider.load_from_data(DESKTOP_CSS);
+    let style = adw::StyleManager::default();
+    load_desktop_css(&provider, style.is_dark());
     gtk::style_context_add_provider_for_display(
         &display,
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
+    style.connect_dark_notify(move |style| load_desktop_css(&provider, style.is_dark()));
+}
+
+fn load_desktop_css(provider: &gtk::CssProvider, dark: bool) {
+    // Keep the primary controls black in both themes; the dark theme needs a
+    // visible edge and lighter text accents for links and selection feedback.
+    let (border, text_accent) = if dark {
+        ("#555555", "#f0f0f0")
+    } else {
+        ("#181818", "#181818")
+    };
+    // Newer libadwaita themes consume CSS variables instead of named colors.
+    // Keep those scoped to our windows; older GTK must not parse this syntax.
+    let variables = if gtk::major_version() > 4 || gtk::minor_version() >= 16 {
+        format!(
+            ".mirelay {{ --accent-bg-color: #181818; --accent-fg-color: #ffffff; \
+             --accent-color: {text_accent}; }}"
+        )
+    } else {
+        String::new()
+    };
+    provider.load_from_data(&format!(
+        "@define-color relay_accent #181818;\n\
+         @define-color relay_on_accent #ffffff;\n\
+         @define-color relay_accent_hover #303030;\n\
+         @define-color relay_accent_border {border};\n\
+         @define-color accent_bg_color #181818;\n\
+         @define-color accent_fg_color #ffffff;\n\
+         @define-color accent_color {text_accent};\n\
+         {variables}\n{DESKTOP_CSS}"
+    ));
 }
 
 fn absolute_path(path: PathBuf) -> Result<PathBuf> {
@@ -2690,6 +4320,49 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn history_snapshots_share_records_until_a_real_mutation() {
+        let history = Arc::new(FileHistory::from(vec![sample_record(
+            "shared.txt",
+            "text/plain",
+        )]));
+        let mut next = Arc::clone(&history);
+        assert!(Arc::ptr_eq(&history, &next));
+        Arc::make_mut(&mut next)[0].original_name = "changed.txt".into();
+        assert_eq!(history[0].original_name, "shared.txt");
+        assert_eq!(next[0].original_name, "changed.txt");
+        assert!(!Arc::ptr_eq(&history, &next));
+    }
+
+    #[test]
+    fn independent_instance_requires_explicit_registry() {
+        assert!(DesktopArgs::try_parse_from(["mirelay-desktop", "--new-instance"]).is_err());
+        let args = DesktopArgs::try_parse_from([
+            "mirelay-desktop",
+            "--new-instance",
+            "--registry",
+            "/tmp/mirelay-preview/folders.toml",
+        ])
+        .unwrap();
+        assert!(args.new_instance);
+    }
+
+    #[test]
+    fn sidebar_smoke_requires_isolation_and_rejects_conflicting_modes() {
+        assert!(DesktopArgs::try_parse_from(["mirelay-desktop", "--sidebar-smoke-test"]).is_err());
+        assert!(
+            DesktopArgs::try_parse_from([
+                "mirelay-desktop",
+                "--registry",
+                "/tmp/sidebar/folders.toml",
+                "--sidebar-smoke-test",
+                "--screenshot",
+                "/tmp/sidebar.png"
+            ])
+            .is_err()
+        );
+    }
 
     fn sample_record(name: &str, media_type: &str) -> DeliveryRecord {
         DeliveryRecord {
@@ -3008,6 +4681,27 @@ mod tests {
         );
         let persisted = std::fs::read_to_string(paths.registry.path()).unwrap();
         assert!(!persisted.to_ascii_lowercase().contains("token"));
+    }
+
+    #[test]
+    fn separate_server_folders_can_share_a_host_without_competing_for_a_queue() {
+        let root = tempdir().unwrap();
+        let paths = test_paths(root.path());
+        for name in ["art", "docs"] {
+            let url = format!("https://relay.example/f/{}", Uuid::new_v4());
+            create_bridge(
+                &paths,
+                name.into(),
+                root.path().join(name),
+                &url,
+                false,
+                false,
+            )
+            .unwrap();
+        }
+        let loaded = load_registry_snapshot(&paths).unwrap();
+        assert_eq!(loaded.bridges.len(), 2);
+        assert!(loaded.bridges.iter().all(|folder| folder.error.is_none()));
     }
 
     #[test]

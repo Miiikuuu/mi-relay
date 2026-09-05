@@ -13,17 +13,17 @@ desktop = ["dep:adw", "dep:gtk"]
 [dependencies]
 adw = { package = "libadwaita", version = "0.7.2", optional = true }
 anyhow = "1"
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "original-uri"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 fastrand = "2"
 futures-util = "0.3"
 fs2 = "0.4"
-gtk = { package = "gtk4", version = "0.9.7", optional = true }
+gtk = { package = "gtk4", version = "0.9.7", features = ["v4_6"], optional = true }
 hex = "0.4"
 httpdate = "1"
 libc = "0.2"
-nix = { version = "0.30", default-features = false, features = ["process", "signal"] }
+nix = { version = "0.30", default-features = false, features = ["process", "signal", "fs"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
 rusqlite = { version = "0.40", default-features = false, features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -39,6 +39,11 @@ uuid = { version = "1", features = ["v4"] }
 [[bin]]
 name = "mirelay-desktop"
 path = "src/bin/mirelay-desktop.rs"
+required-features = ["desktop"]
+
+[[example]]
+name = "frontend-fixture"
+path = "dev/frontend/seed.rs"
 required-features = ["desktop"]
 
 [dev-dependencies]

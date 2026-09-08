@@ -105,8 +105,8 @@ internal class DirectorySource(private val resolver: ContentResolver) {
     /** Hash every file, including already uploaded files whose provider timestamp
      * may be unchanged. Never treat a partial scan as an initialization baseline. */
     fun hashes(tree: Uri, files: List<SourceFile>, session: AutoSession): List<HashedSource> {
-        require(files.all { it.eligible }) { "Directory contains empty, oversized, virtual or unavailable files. Nothing was initialized." }
-        require(files.sumOf { requireNotNull(it.size) } <= 4L * 1024 * 1024 * 1024) { "Directory scan exceeds 4 GiB. Choose a smaller directory." }
+        session.check()
+        DirectoryScanException.validate(files)
         return files.map { file ->
             DirectoryPaths.validate(file.relativePath)
             check(metadata(tree, file, session, true).fingerprint == file.fingerprint) { "Source changed; refresh the preview." }

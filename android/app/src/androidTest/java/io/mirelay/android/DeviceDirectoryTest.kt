@@ -118,6 +118,60 @@ class DeviceDirectoryTest {
         assertThrows(IllegalArgumentException::class.java){app.auto.previewDirectory(pair.folder,AutoFixture.tree)}
         assertNull(app.store.automatic.source(pair.folder));assertTrue(app.store.transfers.value.isEmpty())
     }
+    @Test fun emptyFilePreviewShowsActionablePathAndNeverPartiallyInitializes(){
+        val pair=pair();linux(pair,"prepare")
+        AutoFixture.put("dir",extra={putBoolean("directory",true);putString("name","Pixiv")})
+        AutoFixture.put("empty",0,"dir",extra={putString("name","empty.bin")})
+        AutoFixture.put("valid",64,extra={putString("name","valid.bin")})
+        ui.runOnIdle{model().selected.value=pair.folder;model().openAuto(pair.folder)}
+        ui.waitUntil(15000){!model().busy.value}
+        ui.runOnIdle{model().acceptAutoTree(pair.folder,AutoFixture.tree)}
+        ui.onNodeWithText("Preview changes").performClick()
+        ui.waitUntil(15000){!model().busy.value && model().error.value!=null}
+        ui.onNode(hasText("Cannot scan \"Pixiv/empty.bin\":",substring=true) and hasAnyAncestor(hasTestTag("directory-editor"))).performScrollTo().assertIsDisplayed()
+        assertTrue(model().error.value!!.contains("empty (0 bytes)"))
+        assertNull(model().directoryPreview.value);assertNull(app.store.directorySync.preview(pair.folder))
+        assertNull(app.store.automatic.source(pair.folder));assertTrue(app.store.transfers.value.isEmpty())
+        screenshot("directory-empty-preview")
+    }
+    @Test fun emptyFileWorkerErrorCountsAsAttentionAndRetryRecoversWithoutPartialUploads(){
+        val pair=pair();linux(pair,"prepare")
+        val preview=app.auto.previewDirectory(pair.folder,AutoFixture.tree)
+        app.auto.confirmDirectory(pair.folder,AutoFixture.tree,preview.id,true)
+        val manager=androidx.work.WorkManager.getInstance(app)
+        DeviceSupport.await(15000){manager.getWorkInfosForUniqueWork("auto-check:${pair.folder}").get().all{it.state.isFinished}}
+        AutoFixture.put("dir",extra={putBoolean("directory",true);putString("name","Pixiv")})
+        AutoFixture.put("empty",0,"dir",extra={putString("name","empty.bin")})
+        AutoFixture.put("valid",64,extra={putString("name","valid.bin")})
+        ui.runOnIdle{model().selected.value=pair.folder;model().openAuto(pair.folder)}
+        ui.waitUntil(15000){!model().busy.value}
+        ui.onNodeWithText("Check now").performScrollTo().performClick()
+        DeviceSupport.await(15000){app.store.automatic.source(pair.folder)?.error?.contains("empty (0 bytes)")==true}
+        val failed=app.store.automatic.source(pair.folder)!!
+        assertTrue(failed.enabled);assertEquals(0,failed.skipped);assertEquals(1,failed.attentionCount)
+        assertTrue(app.store.transfers.value.isEmpty());assertEquals(0,linux(pair).getJSONArray("files").length())
+        ui.onNodeWithText("0 waiting · 1 need attention (includes a source issue)").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Cannot scan \"Pixiv/empty.bin\":",substring=true).performScrollTo().assertIsDisplayed()
+        screenshot("directory-empty-worker")
+        // Reopening reads the durable source error, not a transient ViewModel error.
+        ui.onNodeWithText("Close").performClick()
+        ui.runOnIdle{model().openAuto(pair.folder)}
+        ui.waitUntil(15000){!model().busy.value}
+        assertNull(model().error.value)
+        ui.onNodeWithText("0 waiting · 1 need attention (includes a source issue)").performScrollTo().assertIsDisplayed()
+        AutoFixture.control("remove",Bundle().apply{putString("id","empty")})
+        // No additional Check now: the existing bounded WorkManager retry must
+        // recover, settle the valid neighbor, upload it, and clear the source error.
+        uploaded(1)
+        val received=linux(pair)
+        assertEquals(1,received.getJSONArray("files").length())
+        assertEquals(sha(bytes(64)),received.getJSONObject("receipts").getJSONObject("valid.bin").getString("sha256"))
+        app.auto.refreshReceipts(pair.folder);assertTrue(app.store.transfers.value.single().received)
+        val recovered=app.store.automatic.source(pair.folder)!!
+        assertNull(recovered.error);assertEquals(0,recovered.attentionCount)
+        ui.onNodeWithText("0 waiting · 0 need attention").performScrollTo().assertIsDisplayed()
+        screenshot("directory-empty-recovered")
+    }
     @Test fun providerChangesDuringHashingAndIncompleteListingsNeverInitialize(){
         val pair=pair();linux(pair,"prepare")
         AutoFixture.put("unstable",100,extra={putBoolean("mutateOnRead",true)})

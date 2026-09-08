@@ -15,6 +15,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     private val root = File(context.noBackupFilesDir, "outgoing")
     private val mutableFolders = MutableStateFlow<List<Folder>>(emptyList())
     private val mutableTransfers = MutableStateFlow<List<Transfer>>(emptyList())
+    private val refreshLock = Any()
     val folders = mutableFolders.asStateFlow()
     val transfers = mutableTransfers.asStateFlow()
     val automatic by lazy { AutoStore(this) }
@@ -42,7 +43,10 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
         DirectorySyncStore.createTables(db)
     }
 
-    @Synchronized fun refresh() {
+    // Never hold SQLiteOpenHelper's monitor while waiting for a connection:
+    // a transaction on another thread needs that monitor to obtain the database
+    // handle and finish. Serialize UI snapshots on an independent lock instead.
+    fun refresh() = synchronized(refreshLock) {
         mutableFolders.value = readableDatabase.rawQuery("SELECT * FROM folders ORDER BY name COLLATE NOCASE, id", null).use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.folder()) }
         }

@@ -23,7 +23,10 @@ data class AutoSource(
     val waiting: Int, val skipped: Int,
     val prepared: Boolean = false,
     val directorySync: Boolean = false,
-)
+) {
+    val attentionCount get() = skipped + if (error != null) 1 else 0
+    val attentionSummary get() = "$waiting waiting · $attentionCount need attention" + if (error != null) " (includes a source issue)" else ""
+}
 
 internal data class SourceFile(val documentId: String, val uri: android.net.Uri, val name: String, val size: Long?, val modified: Long?, val relativePath: String = name) {
     // Document IDs are provider identities, never filesystem paths.

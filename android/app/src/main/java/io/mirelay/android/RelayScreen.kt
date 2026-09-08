@@ -249,7 +249,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                 else "Existing files stay local unless you select Also send existing files. Only eligible files are sent; originals stay unchanged.", style = MaterialTheme.typography.bodySmall)
             Text("Re-enabling starts a fresh baseline. Pausing also pauses queued Auto uploads; manually resuming a file uses normal network settings.", style = MaterialTheme.typography.bodySmall)
             source?.lastScan?.let { Text("Last check: ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it))}", style = MaterialTheme.typography.labelSmall) }
-            if (source != null && (source.waiting > 0 || source.skipped > 0)) Text("${source.waiting} waiting · ${source.skipped} need attention (changed, unavailable or unsupported files)", style = MaterialTheme.typography.bodySmall)
+            if (source != null && (source.waiting > 0 || source.attentionCount > 0)) Text(source.attentionSummary, style = MaterialTheme.typography.bodySmall)
             (source?.error ?: failure)?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             if (enabled) TextButton(enabled = !busy, onClick = check) { Text("Check now") }
         } },
@@ -288,7 +288,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
             Text("Checks about every 30 minutes; Android may delay them. Low battery or storage pauses work. No always-on service.",style=MaterialTheme.typography.bodySmall)
             if(!initialized && currentPreview==null) Text("On Linux, add a Folder, enable Directory sync, then review and initialize the destination directory. Complete pairing before previewing here.",style=MaterialTheme.typography.bodySmall)
             source?.lastScan?.let {Text("Last check: ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(it))}",style=MaterialTheme.typography.labelSmall)}
-            if(initialized) Text("${source.waiting} waiting · ${source.skipped} need attention",style=MaterialTheme.typography.bodySmall)
+            if(initialized) Text(source.attentionSummary,style=MaterialTheme.typography.bodySmall)
             (failure ?: source?.error)?.let {Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
             if(enabled) TextButton(enabled=!busy,onClick=check) {Text("Check now")}
             if(!initialized && !enabled) TextButton(enabled=!busy,onClick=deliveryMode) {Text("Use delivery Auto")}

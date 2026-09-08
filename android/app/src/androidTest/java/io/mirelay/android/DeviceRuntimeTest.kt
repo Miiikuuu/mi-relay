@@ -115,4 +115,38 @@ class DeviceRuntimeTest {
         assertTrue(store.updateOwned(id, "new", TransferStatus.UPLOADED, 4096, delivery = "receipt"))
         assertThrows(IllegalStateException::class.java) { store.assign(id, "duplicate") }
     }
+    @Test fun refreshWaitingForTransactionDoesNotBlockDatabaseHelperMonitor() {
+        val store=DeviceSupport.app.store
+        val database=store.writableDatabase
+        val pool=java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            repeat(5) {
+                val readerThread=java.util.concurrent.atomic.AtomicReference<Thread>()
+                database.beginTransaction()
+                val reader=pool.submit {
+                    readerThread.set(Thread.currentThread())
+                    store.refresh()
+                }
+                try {
+                    // Force the exact lock order seen in the batch-upload hang:
+                    // refresh waits for this connection while the writer obtains
+                    // the helper again to finish its transaction.
+                    DeviceSupport.await(5000) {readerThread.get()?.stackTrace?.any {
+                        it.className=="android.database.sqlite.SQLiteConnectionPool" && it.methodName=="waitForConnection"
+                    }==true}
+                    val handle=pool.submit<android.database.sqlite.SQLiteDatabase> {store.writableDatabase}
+                    assertSame(database,handle.get(2,java.util.concurrent.TimeUnit.SECONDS))
+                } finally {
+                    // Use the cached handle even on failure, so the pre-fix
+                    // deadlock fails within a timeout instead of wedging the suite.
+                    database.endTransaction()
+                }
+                reader.get(5,java.util.concurrent.TimeUnit.SECONDS)
+            }
+            database.rawQuery("PRAGMA integrity_check",null).use {assertTrue(it.moveToFirst());assertEquals("ok",it.getString(0))}
+        } finally {
+            pool.shutdownNow()
+            assertTrue(pool.awaitTermination(10,java.util.concurrent.TimeUnit.SECONDS))
+        }
+    }
 }

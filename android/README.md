@@ -14,6 +14,14 @@ This remains a development build, not a production-readiness claim. See
 [Android directory sync](../docs/android-directory-sync.md) for setup and limits.
 The delivery-only workflow below remains available and is not silently converted.
 
+Directory sync requires a complete scan; unsupported files are not silently skipped.
+An empty, oversized, virtual or metadata-unavailable file now reports its relative
+path, the reason and a recovery action. A source-level error counts toward **need
+attention**, separately identified from file issues. Fix the source, then use
+**Check now** or allow the existing bounded retry to run. A successful check clears
+the source error without resetting pairing or directory history.
+See the [diagnostics and database concurrency regression report](../docs/android-source-diagnostics-2026-09-08.md).
+
 - Android 8.0+ (API 26), ARM64 phones and x86_64 emulator builds; compile/target SDK 36.
 - Add/select Folders using a Linux-generated pairing code and server URL; the server now isolates each Folder and its sender/receiver permissions. **Choose existing directory** initializes a directory in place during creation. History sending is explicit and unchecked by default; Auto stays off until enabled after pairing. See [Folder setup and pairing](../docs/folder-pairing.md). Legacy device-token connections remain available.
 - Choose files with Android's document picker or receive single/multiple file shares. Confirm the destination before a manual upload. Optional, explicitly enabled **Auto** sends new files from a selected directory. Text-only shares are not yet supported.

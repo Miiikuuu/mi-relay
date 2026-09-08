@@ -240,8 +240,14 @@ ACK recovery, pairing permissions, directory conflicts, UI guards and Android
 scheduling. A passing debug/emulator suite is not a production performance or
 all-device compatibility guarantee.
 
-The latest brand integration and cross-platform regression results are recorded
-in the [2026-09-06 verification report](docs/brand-integration-2026-09-06.md).
+The [2026-09-08 Android regression report](docs/android-source-diagnostics-2026-09-08.md)
+covers source diagnostics and a database deadlock fix: 51 JVM tests, 57 emulator
+tests, and two process-interruption recovery scenarios passed. The subsequent
+[physical-phone empty-file test](docs/phone-empty-file-2026-09-08.md) verified both
+recovery paths through the real relay and Linux receiver. Unattended screen-off
+periodic Auto remains unverified; see the [broader phone acceptance report](docs/phone-acceptance-2026-09-08.md).
+Earlier brand integration and cross-platform results are recorded in the
+[2026-09-06 verification report](docs/brand-integration-2026-09-06.md).
 
 ## Documentation and credits
 

@@ -29,6 +29,9 @@ class AutoScanWorker(context: Context, parameters: WorkerParameters) : Worker(co
                 app.store.automatic.scanResult(source, System.currentTimeMillis(), "Source check timed out. Choose a smaller or locally available directory.")
             }
             if (isStopped || runAttemptCount >= 3) Result.failure() else Result.retry()
+        } catch (error: DirectoryScanException) {
+            app.store.automatic.scanResult(source, System.currentTimeMillis(), error.userMessage)
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
         } catch (_: Exception) {
             app.store.automatic.scanResult(source, System.currentTimeMillis(), "Could not completely check this source. Access, nesting, loading state and the 5,000-entry limit must allow a complete scan.")
             if (runAttemptCount < 3) Result.retry() else Result.failure()

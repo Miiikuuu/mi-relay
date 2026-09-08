@@ -34,6 +34,21 @@ class AutoStoreTest {
     private fun file(id: String = "new", size: Long? = 42, modified: Long? = 1) = SourceFile(id, Uri.parse("content://test/tree/root/document/$id"), "$id.bin", size, modified)
     private fun enable(files: List<SourceFile> = emptyList(), target: String = folder) = store.automatic.enable(target, "content://test/tree/root", "Source", true, files, 0)
     private fun staged(hash: String = "hash") = StagedFile(UUID.randomUUID().toString(), "new.bin", 42, hash)
+    @Test fun sourceIssueCountsTowardAttentionPersistsAndClearsAfterSuccessfulScan() {
+        val source = enable()
+        store.automatic.observe(source, listOf(file("empty", 0)), 1)
+        store.automatic.scanResult(source, 2, "Source check failed.")
+        store.close()
+        store = RelayStore(RuntimeEnvironment.getApplication(), cipher)
+        val failed = store.automatic.source(folder)!!
+        assertEquals(1, failed.skipped); assertEquals(2, failed.attentionCount)
+        assertEquals("1 waiting · 2 need attention (includes a source issue)", failed.attentionSummary)
+        store.automatic.scanResult(source, 3)
+        val recovered = store.automatic.source(folder)!!
+        assertNull(recovered.error); assertEquals(1, recovered.attentionCount)
+        assertEquals("1 waiting · 1 need attention", recovered.attentionSummary)
+        assertEquals("0 waiting · 0 need attention", recovered.copy(waiting = 0, skipped = 0).attentionSummary)
+    }
     @Test fun preparedDirectoryDoesNotSendAndKeepsOriginalBaselineAfterActivation() {
         val old = file("historical")
         val source = store.automatic.enable(folder, "content://test/tree/root", "Pixiv", true, listOf(old), 0,

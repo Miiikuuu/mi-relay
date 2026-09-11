@@ -3,13 +3,16 @@
 Native Android sender MVP: Kotlin/Jetpack Compose for the platform UI and background scheduling, with the existing Rust tus sender shared through JNI. English UI, compact monochrome controls, and multiple **Folders** representing Linux destinations. No WebView, advertising, analytics, or third-party cloud service.
 
 Development builds include [General / Photos categories](../docs/folder-categories.md),
-local image previews and an explicitly previewed directory-sync filter. Categories
+an [album browser](../docs/android-album.md) with a frosted top bar, full-screen
+paging/zoom, and an explicitly previewed directory-sync filter. Categories
 are local display preferences; they never silently change existing transfer consent.
 
 Completed image uploads now keep bounded, derived previews independently of
 upload staging. See the [physical regression report](../docs/phone-categories-2026-09-11.md)
 for the original failure and follow-up verification. Previously discarded previews
-are not automatically reconstructed; cache eviction can also leave placeholders.
+are not automatically reconstructed from transfer records; configured-source
+albums can instead browse their originals read-only. Cache eviction can leave
+placeholders in the transfer-record fallback view.
 
 ## Scope
 

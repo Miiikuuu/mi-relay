@@ -46,6 +46,7 @@ class DeviceUiTest {
     @Before fun setup() {
         DeviceSupport.guard()
         DeviceSupport.reset()
+        app.getSharedPreferences("appearance", 0).edit().clear().commit()
         app.registerActivityLifecycleCallbacks(lifecycle)
         InstrumentationRegistry.getInstrumentation().startActivitySync(Intent(app, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
@@ -138,20 +139,20 @@ class DeviceUiTest {
         ui.onNodeWithTag("folder-kind").performClick()
         ui.onNodeWithTag("kind-photos").performClick()
         ui.waitUntil(15000) {!model().busy.value && app.store.folders.value.single().kind==FolderKind.PHOTOS}
-        ui.onNodeWithTag("folder-content").performScrollToNode(hasTestTag("photo-card-$id"))
+        ui.onNodeWithTag("album-grid").performScrollToNode(hasTestTag("photo-card-$id"))
         // The clickable tile merges its image semantics into the parent.
         ui.waitUntil(15000) {ui.onAllNodesWithTag("photo-image-$id",useUnmergedTree=true).fetchSemanticsNodes().isNotEmpty()}
         ui.onNodeWithTag("photo-image-$id",useUnmergedTree=true).assertIsDisplayed().performTouchInput {click()}
-        ui.onNodeWithText("Local preview · original file unchanged").assertIsDisplayed()
+        ui.onNodeWithTag("album-viewer").assertIsDisplayed()
         // Platform dialog-window fades are not part of Compose's idle clock.
         android.os.SystemClock.sleep(350)
         saveScreen("photos-preview")
-        ui.onNodeWithText("Close").performClick()
-        ui.onNodeWithText("Local preview · original file unchanged").assertDoesNotExist()
+        ui.onNodeWithContentDescription("Close photo").performClick()
+        ui.onNodeWithTag("album-viewer").assertDoesNotExist()
         android.os.SystemClock.sleep(350)
         saveScreen("photos-grid")
-        ui.onNodeWithTag("folder-content").performScrollToIndex(0)
-        ui.onNodeWithTag("folder-kind").performClick();ui.onNodeWithTag("kind-general").performClick()
+        ui.onNodeWithContentDescription("Album options").performClick()
+        ui.onNodeWithText("General view").performClick()
         ui.waitUntil(15000) {!model().busy.value && app.store.folders.value.single().kind==FolderKind.GENERAL}
         ui.onNodeWithTag("photo-card-$id").assertDoesNotExist()
         assertEquals(before,app.store.transfer(id));assertTrue(payload.isFile)
@@ -180,27 +181,127 @@ class DeviceUiTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.recreate() }
         ui.waitUntil(15000) { !model().busy.value }
         select(folder)
-        ui.onNodeWithTag("folder-content").performScrollToNode(hasTestTag("photo-card-$id"))
+        ui.onNodeWithTag("album-grid").performScrollToNode(hasTestTag("photo-card-$id"))
         ui.waitUntil(15000) { ui.onAllNodesWithTag("photo-image-$id", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         ui.onNodeWithTag("photo-image-$id", useUnmergedTree = true).assertIsDisplayed().performTouchInput { click() }
-        ui.onNodeWithText("Local preview · original file unchanged").assertIsDisplayed()
+        ui.onNodeWithTag("album-viewer").assertIsDisplayed()
         ui.waitUntil(15000) { ui.onAllNodes(hasTestTag("photo-image-$id") and hasAnyAncestor(isDialog()), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         ui.onNode(hasTestTag("photo-image-$id") and hasAnyAncestor(isDialog()), useUnmergedTree = true).assertIsDisplayed()
         android.os.SystemClock.sleep(350)
         saveScreen("photos-real-upload-preview")
-        ui.onNodeWithText("Close").performClick()
+        ui.onNodeWithContentDescription("Close photo").performClick()
     }
-    @Test fun corruptImageFallsBackAndPhotosKeepPendingTransfersAheadOfGallery() {
+    @Test fun corruptImageFallsBackAndPendingTransfersRemainInActivityPanel() {
         val folder=DeviceSupport.folder();app.store.setFolderKind(folder,FolderKind.PHOTOS)
         val id=DeviceSupport.import(folder,name="broken.jpg")
         app.store.assign(id,"fixture-owner");app.store.updateOwned(id,"fixture-owner",TransferStatus.UPLOADED,4096)
         val pending=DeviceSupport.import(folder,name="pending.jpg");app.store.pause(pending)
         assertNull(PhotoThumbnails.decode(File(app.store.directory(id),"payload"),256))
         select(folder)
+        ui.onNodeWithTag("album-grid").performScrollToNode(hasTestTag("photo-card-$id"))
+        ui.onNodeWithContentDescription("Preview unavailable: broken.jpg", useUnmergedTree = true).assertIsDisplayed()
+        ui.onNodeWithTag("album-status").performClick()
         ui.onNodeWithText("pending.jpg").assertIsDisplayed()
         ui.onNodeWithContentDescription("Resume or retry transfer").assertIsDisplayed()
-        ui.onNodeWithTag("folder-content").performScrollToNode(hasTestTag("photo-card-$id"))
-        ui.onNodeWithText("Preview unavailable").assertIsDisplayed()
+        ui.onNodeWithText("Close").performClick()
+    }
+    private fun sourceAlbum(count: Int = 6): String {
+        AutoFixture.reset()
+        val bytes = app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { it.readBytes() }
+        repeat(count) { index -> AutoFixture.put("album-$index", bytes.size.toLong(), extra = {
+            putString("name", "Image-$index.png"); putByteArray("bytes", bytes); putLong("modified", 1000L + index)
+        }) }
+        AutoFixture.put("notes", 20, extra = { putString("name", "notes.txt") })
+        val folder = DeviceSupport.folder("Album QA")
+        app.auto.enable(folder, AutoFixture.tree, true, startImmediately = false)
+        app.store.setFolderKind(folder, FolderKind.PHOTOS)
+        select(folder)
+        ui.waitUntil(15000) { ui.onAllNodesWithTag("photo-card-album-${count - 1}").fetchSemanticsNodes().isNotEmpty() }
+        return folder
+    }
+    @Test fun sourceAlbumShowsExistingFilesWithoutUploadingAndSupportsFullscreenZoomAndPaging() {
+        try {
+            val folder = sourceAlbum()
+            val before = app.store.automatic.source(folder)
+            ui.onNodeWithText("Transfers").assertDoesNotExist()
+            ui.onNodeWithText("Image-5.png").assertDoesNotExist() // No filename under the grid tile.
+            ui.onNodeWithTag("photo-card-album-5").performClick()
+            ui.onNodeWithTag("album-viewer").assertIsDisplayed()
+            ui.waitUntil(15000) { ui.onAllNodes(hasTestTag("photo-image-album-5") and hasAnyAncestor(isDialog()), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            val zoom = ui.onNodeWithTag("album-zoom-album-5")
+            zoom.performTouchInput { doubleClick(center) }
+            zoom.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Zoomed"))
+            zoom.performTouchInput { doubleClick(center) }
+            zoom.assert(SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Fit"))
+            ui.onNodeWithTag("album-pager").performTouchInput { swipeLeft() }
+            ui.waitUntil(10000) { ui.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+            ui.onNodeWithContentDescription("Photo details").performClick()
+            ui.onNodeWithText("Optimized preview · original file unchanged").assertIsDisplayed()
+            ui.onNodeWithText("Close").performClick()
+            android.os.SystemClock.sleep(350); saveScreen("album-fullscreen")
+            ui.onNodeWithContentDescription("Close photo").performClick()
+            assertEquals(before, app.store.automatic.source(folder))
+            assertTrue(app.store.transfers.value.isEmpty())
+            assertTrue(File(app.cacheDir, "album-scratch").listFiles().orEmpty().isEmpty())
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+    @Test fun albumGlassScrollsOverImagesAndReducedTransparencyPersists() {
+        try {
+            val folder = sourceAlbum(36)
+            ui.waitUntil(15000) { ui.onAllNodesWithTag("photo-image-album-35", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            ui.onNodeWithTag("album-glass").assertIsDisplayed()
+            ui.onNodeWithTag("album-grid").performTouchInput { swipeUp() }
+            ui.waitForIdle(); android.os.SystemClock.sleep(500); saveScreen("album-frosted-scroll")
+            ui.onNodeWithTag("album-title").assertIsDisplayed()
+            ui.onNodeWithContentDescription("Album options").performClick()
+            ui.onNodeWithText("Reduce transparency").performClick()
+            device.pressBack(); ui.waitForIdle()
+            ui.onNodeWithTag("album-glass-fallback").assertIsDisplayed()
+            assertTrue(app.getSharedPreferences("appearance", 0).getBoolean("reduce_transparency", false))
+            saveScreen("album-reduced-transparency")
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.recreate() }
+            ui.waitUntil(15000) { !model().busy.value }; select(folder)
+            ui.onNodeWithTag("album-glass-fallback").assertIsDisplayed()
+            assertTrue(app.store.transfers.value.isEmpty())
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+    @Test fun albumRefreshRemovesDeletedFilesAndRevokedPermissionNeverShowsPartialLibrary() {
+        try {
+            sourceAlbum()
+            AutoFixture.control("remove", android.os.Bundle().apply { putString("id", "album-5") })
+            ui.onNodeWithContentDescription("Refresh photos").performClick()
+            ui.waitUntil(15000) { ui.onAllNodesWithTag("photo-card-album-5").fetchSemanticsNodes().isEmpty() && ui.onAllNodesWithTag("photo-card-album-4").fetchSemanticsNodes().isNotEmpty() }
+            AutoFixture.mode("loading")
+            ui.onNodeWithContentDescription("Refresh photos").performClick()
+            ui.waitUntil(15000) { ui.onAllNodesWithText("Could not read this Folder completely.", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            ui.onNodeWithTag("photo-card-album-4").assertDoesNotExist()
+            AutoFixture.mode(""); AutoFixture.control("revoke")
+            ui.onNodeWithText("Try again").performClick()
+            ui.waitUntil(15000) { ui.onAllNodesWithText("Folder access is unavailable.", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            assertTrue(app.store.transfers.value.isEmpty())
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+    @Test fun albumReaderBoundsFilesRejectsChangedMetadataAndCancelsBlockedReads() {
+        try {
+            AutoFixture.reset()
+            app.contentResolver.takePersistableUriPermission(AutoFixture.tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            AutoFixture.put("large", AlbumLibrary.MAX_PREVIEW_BYTES + 1, extra = { putString("name", "large.jpg") })
+            AutoFixture.put("changing", 1024, extra = { putString("name", "changing.jpg"); putBoolean("mutateOnRead", true) })
+            AutoFixture.put("slow", 1024 * 1024, extra = { putString("name", "slow.jpg"); putInt("delayMillis", 500) })
+            kotlinx.coroutines.runBlocking {
+                val photos = app.album.scan(AutoFixture.tree.toString()).associateBy { it.key }
+                assertNull(app.album.load(photos.getValue("large"), app.store, 256))
+                var changed = false
+                try { app.album.load(photos.getValue("changing"), app.store, 256) } catch (_: IllegalStateException) { changed = true }
+                assertTrue(changed)
+                val start = android.os.SystemClock.elapsedRealtime()
+                try { kotlinx.coroutines.withTimeout(150) { app.album.load(photos.getValue("slow"), app.store, 256) }; fail("Read must cancel") }
+                catch (_: kotlinx.coroutines.TimeoutCancellationException) { }
+                assertTrue("Cancellation must not wait for the 15-second provider deadline", android.os.SystemClock.elapsedRealtime() - start < 3000)
+            }
+            assertTrue(File(app.cacheDir, "album-scratch").listFiles().orEmpty().isEmpty())
+            assertTrue(app.store.transfers.value.isEmpty())
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
     }
     @Test fun drawerSurvivesRepeatedEmptyAndRepopulatedLists() {
         repeat(12) { index ->

@@ -117,13 +117,19 @@ public final class AutoFixtureProvider extends DocumentsProvider {
         new Thread(() -> {
             try (ParcelFileDescriptor.AutoCloseOutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
                 byte[] buffer = new byte[65536]; int written = 0;
+                byte[] exact = file.getByteArray("bytes");
                 while (written < size) {
                     if (signal != null && signal.isCanceled()) break;
+                    if (file.getInt("delayMillis", 0) > 0) Thread.sleep(Math.min(500, file.getInt("delayMillis")));
                     int count = (int)Math.min(buffer.length, size - written);
-                    for (int i = 0; i < count; i++) buffer[i] = (byte)((written + i + file.getInt("contentOffset", 0)) % 251);
+                    if (exact != null) {
+                        if (exact.length != size) throw new IOException("Incorrect fixture length");
+                        System.arraycopy(exact, written, buffer, 0, count);
+                    } else for (int i = 0; i < count; i++) buffer[i] = (byte)((written + i + file.getInt("contentOffset", 0)) % 251);
                     output.write(buffer, 0, count); written += count;
                 }
             } catch (IOException ignored) { }
+            catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         }, "auto-fixture").start();
         return pipe[0];
     }

@@ -15,12 +15,13 @@ consented directory-sync filter. It does not deploy or change the relay server.
 - Choose the type while adding a Folder, or tap General / Photos above an existing
   Folder name to switch locally, including offline. Folder settings also exposes
   the choice. The drawer uses the matching monochrome line icon.
-- General keeps the transfer list. Photos displays completed image transfers in
-  a two-column grid, with a tap-to-preview view. Pending/failed/paused transfers
-  remain ahead of the grid; non-image attachments remain accessible as list rows.
-- The initial gallery is a view of **local transfer records**, not a complete
-  browser of the SAF source directory or Linux library. Files skipped as already
-  identical at initialization may have no transfer record and thus no gallery tile.
+- General keeps the transfer list. Android's [album mode](android-album.md) uses
+  a compact 3–6-column grid, full-screen paging/zoom and a frosted header. Transfer
+  activity, including non-image attachments and retry actions, lives in a separate
+  panel. Linux retains its gallery/list presentation described below.
+- Android Photos browses the already configured SAF source read-only, including
+  images without transfer records. Without a configured source it falls back to
+  local image transfer records. It is not a device-wide media-library scanner.
 - Before publishing upload completion and cleaning staging, image transfers get
   a best-effort derived PNG preview, sampled to at most 1024 pixels per edge.
   This works for General too, so switching to Photos later can use the preview.
@@ -28,19 +29,21 @@ consented directory-sync filter. It does not deploy or change the relay server.
   to 32 MiB / 128 entries, oldest-access-first eviction; a write may temporarily
   need up to 5 MiB extra. Interrupted temporary writes are removed on the next
   successful preparation. Cache/storage/codec failure does not fail an upload.
-- UI previews read this cache or a still-existing immutable staging payload,
-  never remote URLs or source SAF files. Two concurrent UI decodes, sampled
+- Transfer-record previews read this cache or a still-existing immutable staging
+  payload, never remote URLs. Two concurrent transfer UI decodes, sampled
   256-pixel tiles / 1024-pixel modals, and an 8 MiB RAM cache bound rendering work;
   worker preview preparation is separately serialized. Invalid/unsupported images
   and missing/evicted previews show a placeholder. Images over 100 million
   declared pixels are not decoded. This is not a codec sandbox.
 - Preview cache survives ordinary process restart, but Android or capacity
   eviction can remove it. Completed transfers from the old build whose staging
-  was already removed cannot be reconstructed by this fix: no automatic source
-  scan or re-download is introduced. New image uploads populate the cache.
+  was already removed cannot be reconstructed from transfer records alone.
+  Android's configured-source album can display the original independently;
+  no re-download is introduced. New image uploads populate the cache.
 - Source originals are never edited, recompressed or deleted. No thumbnail is
-  written into a synchronized directory. No new network request, broad storage
-  permission, media scanner, or background service is introduced.
+  written into a synchronized directory. No new relay request, broad storage
+  permission, media scanner, or background service is introduced. A cloud-backed
+  source provider may perform its own network reads for album previews.
 - Animated formats use a still preview. Decoder/EXIF orientation support is limited
   by this first implementation; full media playback/editing is outside this slice.
 

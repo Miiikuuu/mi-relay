@@ -101,6 +101,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
             }
         }) {
             Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
+                if (folder?.kind != FolderKind.PHOTOS) {
                 TopAppBar(modifier = Modifier.testTag("brand-top-bar"),
                     title = { BrandWordmark(Modifier.width(104.dp).height(65.dp).testTag("brand-wordmark")) },
                     expandedHeight = 72.dp,
@@ -111,6 +112,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                         if (folder != null) IconButton(enabled = !busy, onClick = { editing = folder; editor = true }) { RelayIcon("settings", "Folder settings") }
                         IconButton(onClick = { scope.launch { drawer.open() } }) { RelayIcon("menu", "Folders") }
                     })
+                }
             }) { padding ->
                 if (folder == null) {
                     Column(Modifier.padding(padding).fillMaxSize().testTag("welcome").verticalScroll(rememberScrollState()).padding(28.dp), verticalArrangement = Arrangement.Center) {
@@ -119,6 +121,15 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                         Text("Add a Folder to send files to your Linux device through MiRelay.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(24.dp))
                         BlackButton("Add Folder", "plus", !busy) { editing = null; editor = true }
+                    }
+                } else if (folder.kind == FolderKind.PHOTOS) {
+                    key(folder.id) {
+                        AlbumScreen(folder, autoSources.find { it.folderId == folder.id }, transfers.filter { it.folderId == folder.id }, busy,
+                            modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
+                            folders = { scope.launch { drawer.open() } }, settings = { editing = folder; editor = true },
+                            syncSettings = { model.openAuto(folder.id) }, general = { model.setFolderKind(folder.id, FolderKind.GENERAL) },
+                            chooseFiles = chooseFiles, refreshReceipts = { model.refreshReceipts(folder.id) }, checkPairing = { model.checkPairing(folder.id) },
+                            retry = { model.retry(it) }, pause = { model.pause(it) })
                     }
                 } else {
                     val files = remember(transfers, folder.id) {
@@ -159,16 +170,8 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                                         Text(if(directoryMode) "Up to date, or waiting for the next directory check." else "Choose files, or share them from another app.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                val gallery = if (folder.kind == FolderKind.PHOTOS) files.filter { it.status == TransferStatus.UPLOADED && FileFilter.isImageName(it.name) } else emptyList()
-                                val galleryIds = gallery.map { it.id }.toSet()
-                                items(files.filter { it.id !in galleryIds }, key = { "transfer:${it.id}" }) { transfer ->
+                                items(files, key = { "transfer:${it.id}" }) { transfer ->
                                     TransferRow(transfer, busy, { model.retry(transfer.id) }, { model.pause(transfer.id) })
-                                }
-                                items(gallery.chunked(2), key = { "photos:${it.first().id}" }) { row ->
-                                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        row.forEach { PhotoCard(it, Modifier.weight(1f)) }
-                                        if (row.size == 1) Spacer(Modifier.weight(1f))
-                                    }
                                 }
                                 item("receipt-note") {
                                     Text(if(directoryMode) "Waiting for Linux means uploaded, not yet received. Receipts refresh with directory checks; conflicts keep both copies on Linux." else "Uploads are confirmed by your server. Linux delivery receipts are not available for delivery-only files.",
@@ -217,7 +220,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     }
 }
 
-@Composable private fun BrandWordmark(modifier: Modifier) {
+@Composable internal fun BrandWordmark(modifier: Modifier) {
     // Do not crop or tint the supplied opaque artwork, even in dark mode.
     Image(painterResource(R.drawable.mirelay_wordmark), contentDescription = stringResource(R.string.mirelay_brand_description),
         modifier = modifier.clip(RoundedCornerShape(8.dp)).background(Color.White),
@@ -347,7 +350,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     }
 }
 
-@Composable private fun TransferRow(file: Transfer, busy: Boolean, retry: () -> Unit, pause: () -> Unit) {
+@Composable internal fun TransferRow(file: Transfer, busy: Boolean, retry: () -> Unit, pause: () -> Unit) {
     val active = file.status in listOf(TransferStatus.QUEUED, TransferStatus.UPLOADING)
     Column(Modifier.padding(vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -436,11 +439,17 @@ private fun fileSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-@Composable private fun RelayIcon(name: String, description: String?, modifier: Modifier = Modifier) {
+@Composable internal fun RelayIcon(name: String, description: String?, modifier: Modifier = Modifier) {
     val vector = remember(name) {
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
                 when (name) {
+                    "back" -> { moveTo(14f, 5f); lineTo(7f, 12f); lineTo(14f, 19f) }
+                    "next" -> { moveTo(10f, 5f); lineTo(17f, 12f); lineTo(10f, 19f) }
+                    "more" -> { moveTo(5f, 12f); lineTo(5.01f, 12f); moveTo(12f, 12f); lineTo(12.01f, 12f); moveTo(19f, 12f); lineTo(19.01f, 12f) }
+                    "info" -> { moveTo(12f, 3f); curveTo(24f, 3f, 24f, 21f, 12f, 21f); curveTo(0f, 21f, 0f, 3f, 12f, 3f); moveTo(12f, 11f); lineTo(12f, 17f); moveTo(12f, 7f); lineTo(12.01f, 7f) }
+                    "refresh" -> { moveTo(20f, 10f); curveTo(19f, 3f, 9f, 1f, 5f, 7f); moveTo(4f, 14f); curveTo(5f, 21f, 15f, 23f, 19f, 17f); moveTo(20f, 4f); lineTo(20f, 10f); lineTo(14f, 10f); moveTo(4f, 20f); lineTo(4f, 14f); lineTo(10f, 14f) }
+                    "warning" -> { moveTo(12f, 3f); lineTo(22f, 21f); lineTo(2f, 21f); close(); moveTo(12f, 9f); lineTo(12f, 14f); moveTo(12f, 17f); lineTo(12.01f, 17f) }
                     "menu" -> { moveTo(4f, 7f); lineTo(20f, 7f); moveTo(4f, 12f); lineTo(17f, 12f); moveTo(4f, 17f); lineTo(20f, 17f) }
                     "plus" -> { moveTo(12f, 5f); lineTo(12f, 19f); moveTo(5f, 12f); lineTo(19f, 12f) }
                     "folder" -> { moveTo(3f, 7f); lineTo(9f, 7f); lineTo(11f, 9f); lineTo(21f, 9f); lineTo(21f, 19f); lineTo(3f, 19f); close(); moveTo(3f, 7f); lineTo(3f, 5f); lineTo(10f, 5f); lineTo(12f, 7f); lineTo(20f, 7f) }

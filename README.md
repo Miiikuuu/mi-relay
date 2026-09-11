@@ -24,6 +24,8 @@ and metadata. Start with a separate test Folder and keep backups.
 - Manage multiple **Folders**, each with its own destination and connection.
 - Choose local [General / Photos views](docs/folder-categories.md) on Android and
   Linux, with image previews and a separately confirmed Android directory-sync filter.
+- Browse configured Android sources in a compact [album view](docs/android-album.md),
+  with full-screen paging/zoom and a frosted top bar, without starting an upload.
 - Pair one sender and one receiver per Folder using a temporary invitation,
   scoped credentials, and a verification-code confirmation before transfers.
 - Select an existing Android directory without moving its files or requiring

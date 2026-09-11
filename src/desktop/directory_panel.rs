@@ -71,6 +71,7 @@ pub(super) fn prepare(
     set_http_server(&mut config, url.trim_end_matches('/'), insecure);
     config.validate()?;
     let registration = BridgeRegistration {
+        kind: Default::default(),
         id: id.clone(),
         name,
         config_path: paths.bridge_config_dir.join(format!("{id}.toml")),

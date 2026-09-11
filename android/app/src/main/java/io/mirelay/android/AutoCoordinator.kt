@@ -22,10 +22,10 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
     private val reader = DirectorySource(resolver)
     private val directory: DirectoryRemote = DirectoryConnection(context)
 
-    @Synchronized internal fun previewDirectory(folderId: String, tree: Uri): DirectoryPreview {
+    @Synchronized internal fun previewDirectory(folderId: String, tree: Uri, filter: FileFilter = FileFilter.ALL): DirectoryPreview {
         val folder = requireNotNull(store.folder(folderId))
         val previous = store.automatic.source(folderId)
-        require(previous?.let { !it.enabled && !it.directorySync } != false) { "Pause delivery Auto first. An initialized source cannot be changed." }
+        store.directorySync.requirePreviewAllowed(folderId, tree.toString())
         require(folder.pairingState != "legacy") { "Directory sync requires a paired Folder. Create one on Linux and pair it here first." }
         DirectorySource.validate(tree)
         val granted = resolver.persistedUriPermissions.any { it.uri == tree && it.isReadPermission }
@@ -33,11 +33,12 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
             resolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             return AutoSession().use { session ->
                 val snapshot = reader.snapshot(tree, session, true)
-                val files = reader.hashes(tree, snapshot.files, session)
+                val selection = filter.select(snapshot.files)
+                val files = reader.hashes(tree, selection.files, session)
                 val remote = directory.state(folder, store.token(folderId))
                 val comparison = directory.compare(files.inventory(), remote)
                 session.check(); reader.requirePermission(tree)
-                store.directorySync.savePreview(folder, tree.toString(), snapshot.name, files, remote, comparison)
+                store.directorySync.savePreview(folder, tree.toString(), snapshot.name, files, remote, comparison, filter, selection.skipped)
             }
         } catch (error: Exception) {
             if (!granted && previous?.treeUri != tree.toString() && store.directorySync.preview(folderId)?.tree != tree.toString()) {
@@ -46,14 +47,15 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
             throw error
         }
     }
-    @Synchronized internal fun confirmDirectory(folderId: String, tree: Uri, previewId: String, unmetered: Boolean) {
+    @Synchronized internal fun confirmDirectory(folderId: String, tree: Uri, previewId: String, unmetered: Boolean, filter: FileFilter = FileFilter.ALL) {
         val folder = requireNotNull(store.folder(folderId))
         val source = AutoSession().use { session ->
-            val files = reader.hashes(tree, reader.snapshot(tree, session, true).files, session)
+            val selection = filter.select(reader.snapshot(tree, session, true).files)
+            val files = reader.hashes(tree, selection.files, session)
             val remote = directory.state(folder, store.token(folderId))
             directory.compare(files.inventory(), remote)
             session.check(); reader.requirePermission(tree)
-            store.directorySync.confirm(folder, previewId, tree.toString(), files, remote, unmetered, System.currentTimeMillis())
+            store.directorySync.confirm(folder, previewId, tree.toString(), files, remote, unmetered, System.currentTimeMillis(), filter, selection.skipped)
         }
         startDirectory(source)
     }
@@ -202,7 +204,8 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
         val folder = requireNotNull(store.folder(source.folderId))
         val remote = directory.state(folder, store.token(source.folderId))
         store.directorySync.receipts(source.folderId, remote)
-        val files = reader.hashes(tree, reader.snapshot(tree, session, true).files, session)
+        val selection = source.fileFilter.select(reader.snapshot(tree, session, true).files)
+        val files = reader.hashes(tree, selection.files, session)
         directory.compare(files.inventory(), remote)
         session.check()
         val ready = store.directorySync.observe(source, files, clock())
@@ -223,6 +226,7 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
             catch (_: Exception) { session.check(); store.directorySync.fileError(source, value, clock()) }
         }
         uploads.recover(source)
+        store.directorySync.filteredResult(source, selection.skipped.size)
         store.automatic.scanResult(source, clock())
         return store.directorySync.needsSettle(source)
     }

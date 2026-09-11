@@ -104,7 +104,7 @@ class AutoStoreTest {
             db.version = 2
         }
         store = RelayStore(context, cipher); store.refresh()
-        assertEquals(4, store.readableDatabase.version)
+        assertEquals(5, store.readableDatabase.version)
         assertEquals("old-secret", store.token(folder)); assertEquals("legacy", store.folder(folder)!!.pairingState)
         val source = store.automatic.source(folder)!!
         assertTrue(source.enabled); assertFalse(source.prepared); assertEquals("old-revision", source.revision)
@@ -214,6 +214,6 @@ class AutoStoreTest {
         store = RelayStore(context, cipher); store.refresh()
         assertEquals("secret", store.token("legacy")); assertEquals("delivery", store.transfer("receipt")!!.deliveryId)
         assertEquals("owner", store.transfer("receipt")!!.workId); assertNull(store.transfer("receipt")!!.autoRevision)
-        assertEquals(4, store.readableDatabase.version); assertTrue(store.automatic.sources.value.isEmpty())
+        assertEquals(5, store.readableDatabase.version); assertTrue(store.automatic.sources.value.isEmpty())
     }
 }

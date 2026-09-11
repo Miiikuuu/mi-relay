@@ -38,7 +38,7 @@ async fn gtk_auto_receives_directory_versions_and_keeps_conflict_copies_across_r
         config.ensure_directories().unwrap(); let config_path=root.path().join("config.toml"); config.save(&config_path,false).unwrap();
         let transport=mirelay::http_source::HttpSource::new(&url,&invitation.receiver_token,5,100,true).unwrap(); let client=DirectoryClient::new(&url,&invitation.receiver_token,true,"receiver").unwrap();
         let mut receiver=Receiver::open(&destination,&directory_state_dir(&config),&url).unwrap(); receiver.sync(&client,&transport).unwrap(); drop(receiver);
-        let registry=BridgeRegistryStore::new(root.path().join("folders.toml")); registry.update(|registry|registry.add(BridgeRegistration{id:"directory".into(),name:"GTK directory QA".into(),config_path,auto_receive:true})).unwrap();
+        let registry=BridgeRegistryStore::new(root.path().join("folders.toml")); registry.update(|registry|registry.add(BridgeRegistration{kind:Default::default(),id:"directory".into(),name:"GTK directory QA".into(),config_path,auto_receive:true})).unwrap();
         let sender_client=DirectoryClient::new(&url,sender_token,true,"sender").unwrap(); let mut sender=Sender::open(&source,&root.path().join("sender-state"),&url).unwrap(); sender.preview(&sender_client).unwrap(); sender.initialize(&sender_client).unwrap();
         let launch=|| {
             let mut command=Command::new(env!("CARGO_BIN_EXE_mirelay-desktop")); command.args(["--new-instance","--registry"]).arg(registry.path()).arg("--automation-smoke-test").env("MIRELAY_GTK_TEST_TOKEN",&invitation.receiver_token);

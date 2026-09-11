@@ -17,9 +17,33 @@ const MAX_BRIDGES: usize = 256;
 const MAX_REGISTRY_SIZE_BYTES: u64 = 1024 * 1024;
 const MAX_BRIDGE_NAME_CHARS: usize = 128;
 
+/// Local presentation only; never used to authorize or filter a transfer.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderKind {
+    Photos,
+    #[default]
+    #[serde(other)]
+    General,
+}
+
+impl FolderKind {
+    pub fn is_general(&self) -> bool {
+        *self == Self::General
+    }
+    pub fn icon_name(self) -> &'static str {
+        match self {
+            Self::General => "folder-symbolic",
+            Self::Photos => "folder-pictures-symbolic",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct BridgeRegistration {
+    #[serde(default, skip_serializing_if = "FolderKind::is_general")]
+    pub kind: FolderKind,
     pub id: String,
     pub name: String,
     pub config_path: PathBuf,
@@ -141,6 +165,16 @@ impl BridgeRegistry {
             .find(|bridge| bridge.id == id)
             .with_context(|| format!("Folder {id:?} is not registered"))?;
         bridge.auto_receive = enabled;
+        Ok(())
+    }
+
+    pub fn set_kind(&mut self, id: &str, kind: FolderKind) -> Result<()> {
+        let bridge = self
+            .bridges
+            .iter_mut()
+            .find(|bridge| bridge.id == id)
+            .with_context(|| format!("Folder {id:?} is not registered"))?;
+        bridge.kind = kind;
         Ok(())
     }
 
@@ -338,8 +372,46 @@ fn validate_config_path(path: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn categories_default_and_unknown_keys_are_general() {
+        let old = "id = 'one'\nname = 'One'\nconfig_path = '/tmp/one.toml'\nauto_receive = true\n";
+        for extra in ["", "kind = 'future-category'\n", "kind = 'general'\n"] {
+            let record: BridgeRegistration = toml::from_str(&format!("{old}{extra}")).unwrap();
+            assert_eq!(record.kind, FolderKind::General);
+            assert!(record.auto_receive);
+            assert!(!toml::to_string(&record).unwrap().contains("kind"));
+        }
+    }
+
+    #[test]
+    fn category_roundtrip_does_not_change_identity_auto_or_config() {
+        let root = tempfile::tempdir().unwrap();
+        let store = BridgeRegistryStore::new(root.path().join("folders.toml"));
+        let mut original = bridge(root.path(), "one", "One");
+        original.auto_receive = true;
+        store
+            .update(|registry| registry.add(original.clone()))
+            .unwrap();
+        store
+            .update(|registry| registry.set_kind("one", FolderKind::Photos))
+            .unwrap();
+        let mut changed = store.load().unwrap().bridges.remove(0);
+        assert_eq!(changed.kind, FolderKind::Photos);
+        changed.kind = FolderKind::General;
+        assert_eq!(changed, original);
+        let before = std::fs::read(store.path()).unwrap();
+        assert!(
+            store
+                .update(|registry| registry.set_kind("missing", FolderKind::Photos))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(store.path()).unwrap(), before);
+        assert!(!original.config_path.exists());
+    }
+
     fn bridge(root: &Path, id: &str, name: &str) -> BridgeRegistration {
         BridgeRegistration {
+            kind: Default::default(),
             id: id.to_owned(),
             name: name.to_owned(),
             config_path: root.join(format!("{id}.toml")),
@@ -403,6 +475,7 @@ mod tests {
         assert_eq!(registry.bridges, vec![original.clone()]);
 
         let duplicate_path = BridgeRegistration {
+            kind: Default::default(),
             id: "two".to_owned(),
             name: "Second".to_owned(),
             config_path: original.config_path.clone(),
@@ -448,6 +521,7 @@ mod tests {
         assert!(
             registry
                 .add(BridgeRegistration {
+                    kind: Default::default(),
                     id: "one".to_owned(),
                     name: "One".to_owned(),
                     config_path: root.path().join("folder/../one.toml"),

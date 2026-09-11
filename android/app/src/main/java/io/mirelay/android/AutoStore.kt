@@ -181,5 +181,7 @@ class AutoStore(private val relay: RelayStore) {
         getString(getColumnIndexOrThrow("error")), getInt(getColumnIndexOrThrow("waiting")), getInt(getColumnIndexOrThrow("skipped")),
         getInt(getColumnIndexOrThrow("prepared")) != 0,
         getInt(getColumnIndexOrThrow("directory_sync")) != 0,
+        FileFilter.fromKey(getString(getColumnIndexOrThrow("file_filter"))),
+        getInt(getColumnIndexOrThrow("filtered")),
     )
 }

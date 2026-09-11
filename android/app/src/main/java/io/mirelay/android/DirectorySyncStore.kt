@@ -24,47 +24,73 @@ class DirectorySyncStore(private val relay: RelayStore) {
             db.execSQL("CREATE TABLE directory_previews (folder_id TEXT PRIMARY KEY REFERENCES folders(id) ON DELETE CASCADE, id TEXT NOT NULL, tree_uri TEXT NOT NULL, name TEXT NOT NULL, scope TEXT NOT NULL, source TEXT NOT NULL, remote TEXT NOT NULL, comparison TEXT NOT NULL)")
         }
     }
-    fun preview(folder: String): DirectoryPreview? = db.rawQuery("SELECT id,tree_uri,name,comparison FROM directory_previews WHERE folder_id=?", arrayOf(folder)).use {
-        if (!it.moveToFirst()) null else JSONObject(it.getString(3)).let { diff -> DirectoryPreview(it.getString(0),it.getString(1),it.getString(2),diff.getInt("identical"),diff.strings("missing"),diff.strings("different"),diff.getInt("destination_only")) }
+    fun preview(folder: String): DirectoryPreview? = db.rawQuery("SELECT id,tree_uri,name,comparison,file_filter,skipped FROM directory_previews WHERE folder_id=?", arrayOf(folder)).use {
+        if (!it.moveToFirst()) null else JSONObject(it.getString(3)).let { diff -> DirectoryPreview(it.getString(0),it.getString(1),it.getString(2),diff.getInt("identical"),diff.strings("missing"),diff.strings("different"),diff.getInt("destination_only"),FileFilter.fromKey(it.getString(4)),skippedFromJson(it.getString(5))) }
     }
-    internal fun savePreview(folder: Folder, tree: String, name: String, files: List<HashedSource>, remote: JSONObject, diff: JSONObject): DirectoryPreview {
-        require(relay.automatic.source(folder.id)?.let { !it.enabled && !it.directorySync } != false) { "Pause delivery Auto first. An initialized directory cannot be remapped." }
+    internal fun requirePreviewAllowed(folder: String, tree: String) {
+        val source = relay.automatic.source(folder)
+        require(source?.enabled != true) { "Pause Auto before previewing changes." }
+        require(source?.directorySync != true || source.treeUri == tree) { "An initialized directory cannot be remapped. Choose its original source." }
+    }
+    internal fun savePreview(folder: Folder, tree: String, name: String, files: List<HashedSource>, remote: JSONObject, diff: JSONObject,
+        filter: FileFilter = FileFilter.ALL, skipped: List<SkippedFile> = emptyList()): DirectoryPreview {
+        requirePreviewAllowed(folder.id, tree)
+        requireFilterChange(folder.id, filter)
         val source = files.snapshotJson()
-        require(source.toByteArray().size + remote.toString().toByteArray().size + diff.toString().toByteArray().size <= 8 * 1024 * 1024) { "Directory preview exceeds its safety limit." }
+        require(source.toByteArray().size + remote.toString().toByteArray().size + diff.toString().toByteArray().size + skipped.toJson().toByteArray().size <= 8 * 1024 * 1024) { "Directory preview exceeds its safety limit." }
         db.insertWithOnConflict("directory_previews", null, ContentValues().apply {
             put("folder_id",folder.id); put("id",UUID.randomUUID().toString()); put("tree_uri",tree); put("name",name)
             put("scope",folder.server); put("source",source); put("remote",remote.toString()); put("comparison",diff.toString())
+            put("file_filter",filter.key); put("skipped",skipped.toJson())
         }, SQLiteDatabase.CONFLICT_REPLACE).also { check(it != -1L) }
         return requireNotNull(preview(folder.id))
     }
-    internal fun confirm(folder: Folder, previewId: String, tree: String, files: List<HashedSource>, remote: JSONObject, unmetered: Boolean, now: Long): AutoSource {
+    internal fun confirm(folder: Folder, previewId: String, tree: String, files: List<HashedSource>, remote: JSONObject, unmetered: Boolean, now: Long,
+        filter: FileFilter = FileFilter.ALL, skipped: List<SkippedFile> = emptyList()): AutoSource {
         transaction {
-            require(relay.automatic.source(folder.id)?.let { !it.enabled && !it.directorySync } != false) { "Pause delivery Auto before initialization. Existing sync cannot be reset." }
+            requirePreviewAllowed(folder.id, tree)
+            requireFilterChange(folder.id, filter)
             require(!db.rawQuery("SELECT 1 FROM transfers WHERE folder_id=? AND status!='UPLOADED' LIMIT 1",arrayOf(folder.id)).use { it.moveToFirst() }) { "Finish existing transfers before initializing this Folder." }
-            val diff = db.rawQuery("SELECT source,remote,comparison FROM directory_previews WHERE folder_id=? AND id=? AND tree_uri=? AND scope=?", arrayOf(folder.id,previewId,tree,folder.server)).use {
-                require(it.moveToFirst() && it.getString(0) == files.snapshotJson() && it.getString(1) == remote.toString()) { "Source or Linux changed since preview. Preview again before confirming." }
+            val diff = db.rawQuery("SELECT source,remote,comparison,file_filter,skipped FROM directory_previews WHERE folder_id=? AND id=? AND tree_uri=? AND scope=?", arrayOf(folder.id,previewId,tree,folder.server)).use {
+                require(it.moveToFirst() && it.getString(0) == files.snapshotJson() && it.getString(1) == remote.toString() && it.getString(3) == filter.key && it.getString(4) == skipped.toJson()) { "Source, filter or Linux changed since preview. Preview again before confirming." }
                 JSONObject(it.getString(2))
             }
             val changed = (diff.strings("missing") + diff.strings("different")).toSet()
             val name = requireNotNull(preview(folder.id)).name
+            val previousVersion = db.rawQuery("SELECT next_version FROM auto_sources WHERE folder_id=?", arrayOf(folder.id)).use { if(it.moveToFirst()) it.getLong(0) else 1L }
+            val historical = db.rawQuery("SELECT path FROM directory_files WHERE folder_id=?", arrayOf(folder.id)).use { rows -> buildSet { while(rows.moveToNext()) add(rows.getString(0)) } }
+            require((historical + files.map { it.file.relativePath }).size <= AutoStore.MAX_ENTRIES) { "Directory path history reached 5,000 entries. No files were removed." }
             val values = ContentValues().apply {
                 put("tree_uri",tree); put("name",name); put("revision",UUID.randomUUID().toString()); put("enabled",1)
-                put("prepared",0); put("directory_sync",1); put("next_version",floor(remote)); put("unmetered",if(unmetered)1 else 0); put("last_scan",now); putNull("error")
+                put("prepared",0); put("directory_sync",1); put("next_version",maxOf(previousVersion,floor(remote))); put("unmetered",if(unmetered)1 else 0); put("last_scan",now); putNull("error")
+                put("file_filter",filter.key); put("filtered",skipped.size)
             }
             if(db.update("auto_sources",values,"folder_id=?",arrayOf(folder.id)) == 0) { values.put("folder_id",folder.id); db.insertOrThrow("auto_sources",null,values) }
             db.delete("auto_files","folder_id=?",arrayOf(folder.id))
+            // Keep excluded path history and monotonically increasing versions.
+            // Exclusion never removes a source, destination, or transfer record.
+            db.update("directory_files",ContentValues().apply {put("state","EXCLUDED");putNull("error")},"folder_id=?",arrayOf(folder.id))
             for(value in files) {
                 DirectoryPaths.validate(value.file.relativePath)
-                db.insertOrThrow("directory_files",null,ContentValues().apply {
+                val fileValues = ContentValues().apply {
                     put("folder_id",folder.id); put("path",value.file.relativePath); put("document_id",value.file.documentId); put("fingerprint",value.file.fingerprint)
-                    if(value.file.relativePath !in changed) put("sha256",value.sha256)
+                    if(value.file.relativePath !in changed) put("sha256",value.sha256) else putNull("sha256")
                     put("observed_sha",value.sha256); put("stable_since",now - AutoStore.STABLE_MILLIS)
                     put("state",if(value.file.relativePath in changed) "PENDING" else "CLEAN")
-                })
+                    putNull("error")
+                }
+                if(db.update("directory_files",fileValues,"folder_id=? AND path=?",arrayOf(folder.id,value.file.relativePath)) == 0) db.insertOrThrow("directory_files",null,fileValues)
             }
             db.delete("directory_previews","folder_id=?",arrayOf(folder.id))
         }
         relay.refresh(); return requireNotNull(relay.automatic.source(folder.id))
+    }
+    internal fun filteredResult(source: AutoSource, count: Int) {
+        db.update("auto_sources", ContentValues().apply { put("filtered", count) }, "folder_id=? AND revision=? AND enabled=1", arrayOf(source.folderId,source.revision))
+    }
+    private fun requireFilterChange(folder: String, filter: FileFilter) {
+        val source = relay.automatic.source(folder)
+        require(source?.directorySync != true || source.fileFilter != filter) { "This directory is already initialized with this filter. Resume sync without resetting its baseline." }
     }
     internal fun resume(folder: String, tree: String, unmetered: Boolean): AutoSource {
         transaction {

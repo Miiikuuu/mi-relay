@@ -46,6 +46,45 @@ class DirectorySyncStoreTest {
         assertEquals(preview,store.directorySync.preview(folder.id));assertNull(store.automatic.source(folder.id))
         assertEquals("secret",store.token(folder.id))
     }
+    @Test fun previewBindsFilterAndSkippedFilesAcrossRestart() {
+        val files=listOf(file("photo.jpg"));val state=remote()
+        val skipped=listOf(SkippedFile("notes.txt","Not an included image extension","doc:42:1:notes.txt"))
+        val plan=store.directorySync.savePreview(folder,tree,"Photos",files,state,diff(files),FileFilter.IMAGES,skipped)
+        store.close();store=RelayStore(RuntimeEnvironment.getApplication(),cipher)
+        assertEquals(plan,store.directorySync.preview(folder.id))
+        assertThrows(IllegalArgumentException::class.java) {store.directorySync.confirm(folder,plan.id,tree,files,state,true,10000,FileFilter.ALL,skipped)}
+        assertThrows(IllegalArgumentException::class.java) {store.directorySync.confirm(folder,plan.id,tree,files,state,true,10000,FileFilter.IMAGES,emptyList())}
+        assertNull(store.automatic.source(folder.id));assertTrue(store.transfers.value.isEmpty())
+        val source=store.directorySync.confirm(folder,plan.id,tree,files,state,true,10000,FileFilter.IMAGES,skipped)
+        assertEquals(FileFilter.IMAGES,source.fileFilter);assertEquals(1,source.filtered)
+    }
+    @Test fun changingFilterPreservesVersionsHistoryAndUploadedRecords() {
+        val text=file("notes.txt");val photo=file("cover.jpg",'b');val original=start(listOf(text,photo))
+        val textTransfer=commit(original,text);uploaded(textTransfer)
+        val imageTransfer=commit(original,photo);uploaded(imageTransfer)
+        store.automatic.disable(folder.id)
+        val skipped=listOf(SkippedFile("notes.txt","Not an included image extension","fingerprint"))
+        val state=remote();val plan=store.directorySync.savePreview(folder,tree,"Photos",listOf(photo),state,diff(listOf(photo),setOf(photo.file.relativePath)),FileFilter.IMAGES,skipped)
+        val changed=store.directorySync.confirm(folder,plan.id,tree,listOf(photo),state,true,30000,FileFilter.IMAGES,skipped)
+        assertNotEquals(original.revision,changed.revision);assertEquals(FileFilter.IMAGES,changed.fileFilter)
+        assertEquals(2,store.transfers.value.size)
+        assertEquals("EXCLUDED",store.readableDatabase.rawQuery("SELECT state FROM directory_files WHERE path='notes.txt'",null).use {it.moveToFirst();it.getString(0)})
+        assertFalse(store.directorySync.commit(original,text,staged(text)))
+        val next=file("new.jpg",'c');store.directorySync.observe(changed,listOf(photo,next),50000)
+        store.directorySync.observe(changed,listOf(photo,next),60000)
+        assertEquals(3L,commit(changed,next).sourceVersion)
+        // A delayed old scan must not change the new policy's visible count.
+        store.directorySync.filteredResult(original,999)
+        assertEquals(1,store.automatic.source(folder.id)!!.filtered)
+    }
+    @Test fun pendingTransfersBlockChangingTheFilterWithoutDeletingAnything() {
+        val value=file("note.txt");val source=start(listOf(value));val transfer=commit(source,value)
+        store.automatic.disable(folder.id);val state=remote()
+        val plan=store.directorySync.savePreview(folder,tree,"Photos",emptyList(),state,diff(emptyList()),FileFilter.IMAGES)
+        assertThrows(IllegalArgumentException::class.java) {store.directorySync.confirm(folder,plan.id,tree,emptyList(),state,true,20000,FileFilter.IMAGES)}
+        assertNotNull(store.transfer(transfer.id));assertEquals(FileFilter.ALL,store.automatic.source(folder.id)!!.fileFilter)
+        assertFalse(store.automatic.source(folder.id)!!.enabled)
+    }
     @Test fun initializationRequiresMatchingPreviewSourceRemoteTreeAndIdentity() {
         val files=listOf(file());val state=remote();val plan=store.directorySync.savePreview(folder,tree,"Pixiv",files,state,diff(files))
         for(action in listOf<()->Unit>(
@@ -149,7 +188,7 @@ class DirectorySyncStoreTest {
             db.version=3
         }
         store=RelayStore(context,cipher);store.refresh()
-        assertEquals(4,store.readableDatabase.version);assertEquals("old-secret",store.token(folder.id));assertEquals("ready",store.folder(folder.id)!!.pairingState)
+        assertEquals(5,store.readableDatabase.version);assertEquals("old-secret",store.token(folder.id));assertEquals("ready",store.folder(folder.id)!!.pairingState)
         assertTrue(store.automatic.source(folder.id)!!.prepared);assertFalse(store.automatic.source(folder.id)!!.directorySync)
         assertEquals("old-receipt",store.transfer("old-transfer")!!.deliveryId);assertNull(store.transfer("old-transfer")!!.relativePath)
     }

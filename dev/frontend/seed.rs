@@ -79,6 +79,11 @@ fn prepare(root: &Path, directory: bool) -> Result<()> {
         config.save(&config_path, false)?;
         seed_folder(&config, &folder_root, id)?;
         registry.add(BridgeRegistration {
+            kind: if id == "illustrations" {
+                mirelay::bridge_registry::FolderKind::Photos
+            } else {
+                Default::default()
+            },
             id: id.into(),
             name: name.into(),
             config_path,
@@ -160,6 +165,7 @@ fn seed_directory(root: &Path, registry: &mut BridgeRegistry) -> Result<()> {
     value["files"]["Documents/notes.txt"]["acknowledged"] = true.into();
     atomic_write(&ledger, &serde_json::to_vec_pretty(&value)?)?;
     registry.add(BridgeRegistration {
+        kind: Default::default(),
         id: "directory-sync".into(),
         name: "Shared files".into(),
         config_path: path,
@@ -190,7 +196,11 @@ fn seed_folder(config: &Config, root: &Path, id: &str) -> Result<()> {
             ("Retry example.bin", vec![0, 1, 2, 255]),
         ],
         "illustrations" => vec![
-            ("Wallpaper sample.png", STANDARD.decode(PNG)?),
+            (
+                "Wallpaper sample.png",
+                include_bytes!("../../assets/brand/MiRelay-brand-kit-v1/icons/png/mirelay-512.png")
+                    .to_vec(),
+            ),
             ("Wallpaper failure.png", STANDARD.decode(PNG)?),
         ],
         "long-name" => vec![(

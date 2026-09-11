@@ -11,7 +11,8 @@ The launcher seeds `.local/default/` on first use, compiles current source and o
 ## Samples
 
 - **Documents**: received text/CSV, a pending acknowledgement, a retry error, and one incoming file waiting for **Receive**.
-- **Illustrations**: valid tiny PNGs with unconfigured/failed wallpaper states.
+- **Illustrations**: Photos category, the original supplied icon as a preview sample,
+  and a tiny PNG with a failed wallpaper state. The failure stays above the grid.
 - **Empty Folder**: no transfers.
 - **Long Folder name**: long English/Unicode names for truncation and tooltip checks.
 

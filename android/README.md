@@ -2,6 +2,15 @@
 
 Native Android sender MVP: Kotlin/Jetpack Compose for the platform UI and background scheduling, with the existing Rust tus sender shared through JNI. English UI, compact monochrome controls, and multiple **Folders** representing Linux destinations. No WebView, advertising, analytics, or third-party cloud service.
 
+Development builds include [General / Photos categories](../docs/folder-categories.md),
+local image previews and an explicitly previewed directory-sync filter. Categories
+are local display preferences; they never silently change existing transfer consent.
+
+Completed image uploads now keep bounded, derived previews independently of
+upload staging. See the [physical regression report](../docs/phone-categories-2026-09-11.md)
+for the original failure and follow-up verification. Previously discarded previews
+are not automatically reconstructed; cache eviction can also leave placeholders.
+
 ## Scope
 
 The development app now includes opt-in **Directory sync** for paired Folders:
@@ -14,7 +23,8 @@ This remains a development build, not a production-readiness claim. See
 [Android directory sync](../docs/android-directory-sync.md) for setup and limits.
 The delivery-only workflow below remains available and is not silently converted.
 
-Directory sync requires a complete scan; unsupported files are not silently skipped.
+Directory sync requires a complete listing; included unsupported files are not
+silently skipped. The explicit Images only filter reports excluded paths before consent.
 An empty, oversized, virtual or metadata-unavailable file now reports its relative
 path, the reason and a recovery action. A source-level error counts toward **need
 attention**, separately identified from file issues. Fix the source, then use

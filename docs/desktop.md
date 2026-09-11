@@ -50,6 +50,10 @@ The interface uses black primary controls and Folder selection, compact property
 - The sort popover has one row per field (Name / Last received), with paired ▲ / ▼ buttons for ascending and descending order. Folders with no received files stay last in either time direction. The filter menu combines name search with All Folders, Needs Attention, Pending, or New Files. `Ctrl+F` opens filtering. Sorting/filtering never changes the selected Folder; empty results offer Clear Filters.
 - A small symbolic icon appears only for an error, pending work, or newly received files in another Folder. Opening a Folder clears its new-file marker, not its pending/error state. An intentionally disabled wallpaper command is not a sidebar warning.
 - Folder properties include its local path, source, device ID, file-size limit, and wallpaper workflow.
+- The General / Photos selector above the Folder name changes local presentation
+  offline. Photos groups completed images into a bounded grid with local PNG/JPEG
+  previews; pending and failed transfers and other files remain list rows. It does
+  not change transfer selection. See [category behavior and limits](folder-categories.md#linux-local-categories).
 - The Files list belongs to the selected Folder. Its sort popover uses the same paired triangles, with just three rows: Name, Date received, and Size. Only the selected direction is highlighted; tooltips explain the ordering and keyboard focus follows the current selection when opening the popover. Filtering combines filename search with file type and transfer status. Preferences are remembered separately per Folder during the session.
 - Active operations always sort first among matching files. Filtering searches the entire local history, not just recent records; long lists render 100 rows at a time with Show More.
 - Completed files show their name, size, and time without a persistent Received label or checkmark. The top-level Receive button remains the action for checking for new deliveries.

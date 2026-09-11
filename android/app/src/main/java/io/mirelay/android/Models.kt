@@ -6,7 +6,7 @@ const val MAX_FILE_BYTES = 100L * 1024 * 1024
 const val MAX_SHARED_FILES = 20
 
 data class Folder(val id: String, val name: String, val server: String, val insecure: Boolean,
-    val pairingState: String = "legacy", val verification: String? = null)
+    val pairingState: String = "legacy", val verification: String? = null, val kind: FolderKind = FolderKind.GENERAL)
 enum class TransferStatus { QUEUED, UPLOADING, PAUSED, FAILED, UPLOADED }
 data class Transfer(
     val id: String, val folderId: String, val name: String, val size: Long,
@@ -23,6 +23,8 @@ data class AutoSource(
     val waiting: Int, val skipped: Int,
     val prepared: Boolean = false,
     val directorySync: Boolean = false,
+    val fileFilter: FileFilter = FileFilter.ALL,
+    val filtered: Int = 0,
 ) {
     val attentionCount get() = skipped + if (error != null) 1 else 0
     val attentionSummary get() = "$waiting waiting · $attentionCount need attention" + if (error != null) " (includes a source issue)" else ""
@@ -38,7 +40,8 @@ internal data class StagedFile(val id: String, val name: String, val size: Long,
 
 internal data class HashedSource(val file: SourceFile, val sha256: String)
 data class DirectoryPreview(val id: String, val tree: String, val name: String, val identical: Int,
-    val missing: List<String>, val different: List<String>, val destinationOnly: Int)
+    val missing: List<String>, val different: List<String>, val destinationOnly: Int,
+    val fileFilter: FileFilter = FileFilter.ALL, val skipped: List<SkippedFile> = emptyList())
 
 internal object DirectoryPaths {
     fun validate(path: String) {

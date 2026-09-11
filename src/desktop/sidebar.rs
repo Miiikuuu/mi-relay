@@ -255,6 +255,7 @@ mod tests {
     fn view(id: &str, name: &str, deliveries: Vec<DeliveryRecord>) -> BridgeView {
         BridgeView {
             registration: BridgeRegistration {
+                kind: Default::default(),
                 id: id.into(),
                 name: name.into(),
                 config_path: PathBuf::from(format!("/fixtures/{id}.toml")),

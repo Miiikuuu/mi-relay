@@ -588,6 +588,78 @@ pub(super) fn run(ui: &Rc<DesktopUi>) -> Result<()> {
             ui.paths.registry.load()? == original_registry,
             "opening/cancelling mode selection must not initialize anything"
         );
+        // Local category changes must work without a network or credentials.
+        let active_id = ui
+            .selected_bridge_id
+            .borrow()
+            .clone()
+            .context("selected Folder")?;
+        let mut image = template.clone();
+        image.id = "category-photo".into();
+        image.original_name = "Photo.PNG".into();
+        image.media_type = "image/png".into();
+        let mut pending_image = image.clone();
+        pending_image.id = "category-pending".into();
+        pending_image.original_name = "Waiting.png".into();
+        pending_image.delivery_status = DeliveryStatus::AckPending;
+        {
+            let mut bridges = ui.bridges.borrow_mut();
+            let bridge = bridges
+                .iter_mut()
+                .find(|bridge| bridge.registration.id == active_id)
+                .unwrap();
+            bridge.snapshot.as_mut().unwrap().deliveries =
+                Arc::new(vec![image, pending_image, template.clone()].into());
+        }
+        ui.file_views.borrow_mut().remove(&active_id);
+        ui.file_activity.borrow_mut().remove(&active_id);
+        w.folder_category.set_selected(1);
+        ui.render_current_bridge();
+        ensure!(
+            ui.paths
+                .registry
+                .load()?
+                .bridges
+                .iter()
+                .find(|bridge| bridge.id == active_id)
+                .unwrap()
+                .kind
+                == crate::bridge_registry::FolderKind::Photos
+        );
+        ensure!(
+            w.photo_grid.child_at_index(0).is_some() && w.photo_grid.child_at_index(1).is_none()
+        );
+        ensure!(names(ui).contains(&"Waiting.png".to_owned()));
+        ensure!(!names(ui).contains(&"Photo.PNG".to_owned()));
+        let tile = w.photo_grid.child_at_index(0).unwrap();
+        ui.render_current_bridge();
+        ensure!(
+            w.photo_grid.child_at_index(0).as_ref() == Some(&tile),
+            "unchanged gallery should retain thumbnails"
+        );
+        ui.handle_file_progress(
+            &active_id,
+            SyncEvent::FileActive {
+                id: "category-active".into(),
+                original_name: "Downloading.png".into(),
+                media_type: "image/png".into(),
+                size: 1024,
+                phase: SyncPhase::Downloading,
+            },
+        );
+        ensure!(names(ui).first().map(String::as_str) == Some("Downloading.png"));
+        ensure!(
+            w.photo_grid.child_at_index(0).as_ref() == Some(&tile),
+            "transfer progress rebuilt completed thumbnails"
+        );
+        ui.file_activity.borrow_mut().remove(&active_id);
+        w.folder_category.set_selected(0);
+        ensure!(w.photo_grid.child_at_index(0).is_none());
+        ensure!(names(ui).contains(&"Photo.PNG".to_owned()));
+        ensure!(
+            ui.paths.registry.load()? == original_registry,
+            "category roundtrip changed other settings"
+        );
         Ok(())
     })();
     ui.bridges.replace(original_bridges);

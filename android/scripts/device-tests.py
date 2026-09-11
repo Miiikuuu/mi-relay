@@ -293,6 +293,11 @@ def main():
                 adb("shell", "am", "force-stop", PACKAGE)
                 adb("shell", "pm", "revoke", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
             results[name] = instrument(name, report)
+        if not args.skip_recovery:
+            results["photo_preview_seed"] = instrument("PhotoPreviewRecoveryTest#seedCompletedImage", report)
+            if results["photo_preview_seed"]:
+                adb("shell", "am", "force-stop", PACKAGE)
+                results["photo_preview_cold_start"] = instrument("PhotoPreviewRecoveryTest#verifyPreviewInNewProcess", report)
         for automatic in (() if args.skip_recovery else (False, True)):
             prefix = "auto-" if automatic else ""
             seed = "seedInterruptedAutomaticUpload" if automatic else "seedInterruptedUpload"
@@ -330,7 +335,10 @@ def main():
         records = list(state["deliveries"].values())
         for record in records:
             payload = Path(record["stored_path"]).read_bytes()
-            assert payload == bytes(i % 251 for i in range(len(payload))), record["original_name"]
+            expected = ((ROOT / "assets/brand/MiRelay-brand-kit-v1/icons/png/mirelay-512.png").read_bytes()
+                        if record["original_name"] == "Uploaded-original.png"
+                        else bytes(i % 251 for i in range(len(payload))))
+            assert payload == expected, record["original_name"]
             assert hashlib.sha256(payload).hexdigest() == record["sha256"]
         results["linux_exact_bytes_and_hash"] = True
         results["linux_delivery_count"] = len(records)

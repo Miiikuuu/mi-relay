@@ -68,6 +68,7 @@ impl Fixture {
             store
                 .update(|registry| {
                     registry.add(BridgeRegistration {
+                        kind: Default::default(),
                         id: id.into(),
                         name: id.into(),
                         config_path: path,

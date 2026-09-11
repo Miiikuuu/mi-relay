@@ -19,8 +19,12 @@ sha256sum -c SHA256SUMS.txt
 | GitHub README | `wordmark/mirelay-wordmark.png` | Entire canvas, proportional width |
 | Linux launcher | `icons/png/mirelay-*.png` | Embedded icon-theme resources; installed PNGs for the application menu |
 | Linux header / About | 128 px icon / complete wordmark | White surfaces, original aspect ratio |
-| Android launcher / drawer | `icons/png/mirelay-512.png` | Adaptive icon with uniform inset / 40 dp white container |
-| Android welcome | Complete wordmark | Fit, never crop; white container in both themes |
+| Android launcher | `icons/png/mirelay-512.png` | Adaptive icon with uniform inset |
+| Android top-left header / drawer | Complete wordmark | Fit, never crop; white container in both themes; replaces plain app-name text |
+
+The Android wordmark stays in the top-left app bar on both the welcome and Folder
+screens, without a second centered welcome logo. Folder navigation remains
+available through the menu action on the right.
 
 The Android copies live in `android/app/src/main/res/drawable-nodpi/` so Android
 does not reinterpret their source density. They must remain byte-identical to

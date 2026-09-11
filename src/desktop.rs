@@ -37,6 +37,7 @@ mod file_smoke;
 mod files;
 mod loading;
 mod pairing_panel;
+mod photos;
 mod sidebar;
 mod sorting;
 mod stress_smoke;
@@ -582,6 +583,8 @@ struct Widgets {
     bridge_error_page: adw::StatusPage,
     bridge_error_action: gtk::Button,
     bridge_name: gtk::Label,
+    folder_category: gtk::DropDown,
+    bridge_icon: gtk::Image,
     bridge_path: gtk::Label,
     bridge_state_icon: gtk::Image,
     bridge_state: gtk::Label,
@@ -594,6 +597,7 @@ struct Widgets {
     activity_stack: gtk::Stack,
     activity_empty: gtk::Label,
     delivery_list: gtk::ListBox,
+    photo_grid: gtk::FlowBox,
     file_sort_button: gtk::MenuButton,
     file_filter_button: gtk::MenuButton,
     file_search: gtk::SearchEntry,
@@ -617,6 +621,7 @@ struct DesktopUi {
     processing_worker_batch: Cell<bool>,
     file_render_pending: Cell<bool>,
     rendered_files: RefCell<Vec<FileEntry>>,
+    rendered_context: RefCell<Option<(String, crate::bridge_registry::FolderKind)>>,
     tokens: RefCell<HashMap<String, String>>,
     busy: Cell<bool>,
     editor_open: Cell<bool>,
@@ -764,6 +769,7 @@ fn import_bootstrap_config(paths: &DesktopPaths) -> Result<()> {
         }
         ensure_resources_unique(registry, &resources, None)?;
         registry.add(BridgeRegistration {
+            kind: Default::default(),
             id: Uuid::new_v4().to_string(),
             name,
             config_path,
@@ -1094,12 +1100,59 @@ fn build_window(
         processing_worker_batch: Cell::new(false),
         file_render_pending: Cell::new(false),
         rendered_files: RefCell::new(Vec::new()),
+        rendered_context: RefCell::new(None),
         tokens: RefCell::new(HashMap::new()),
         busy: Cell::new(false),
         editor_open: Cell::new(false),
         sender,
         widgets,
     });
+
+    {
+        let weak = Rc::downgrade(&ui);
+        ui.widgets
+            .folder_category
+            .connect_selected_notify(move |choice| {
+                let Some(ui) = weak.upgrade() else {
+                    return;
+                };
+                let Some(bridge) = ui.selected_bridge() else {
+                    return;
+                };
+                let kind = if choice.selected() == 1 {
+                    crate::bridge_registry::FolderKind::Photos
+                } else {
+                    crate::bridge_registry::FolderKind::General
+                };
+                if bridge.registration.kind == kind {
+                    return;
+                }
+                // Presentation can be changed offline without touching config, tokens or Auto.
+                if let Err(error) = ui
+                    .paths
+                    .registry
+                    .update(|registry| registry.set_kind(&bridge.registration.id, kind))
+                {
+                    choice.set_selected(u32::from(!bridge.registration.kind.is_general()));
+                    ui.widgets
+                        .toast_overlay
+                        .add_toast(adw::Toast::new(&safe_ui_message(&error.to_string(), 300)));
+                    return;
+                }
+                if let Some(view) = ui
+                    .bridges
+                    .borrow_mut()
+                    .iter_mut()
+                    .find(|view| view.registration.id == bridge.registration.id)
+                {
+                    view.registration.kind = kind;
+                }
+                ui.rendered_files.borrow_mut().clear();
+                clear_list_box(&ui.widgets.delivery_list);
+                ui.render_bridge_list();
+                ui.render_current_bridge();
+            });
+    }
 
     {
         let ui = Rc::clone(&ui);
@@ -1542,6 +1595,14 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     bridge_path.add_css_class("secondary-text");
     let bridge_titles = gtk::Box::new(gtk::Orientation::Vertical, 3);
     bridge_titles.set_hexpand(true);
+    let folder_category = gtk::DropDown::from_strings(&["General", "Photos"]);
+    folder_category.set_halign(gtk::Align::Start);
+    folder_category.set_widget_name("folder-category");
+    folder_category.set_tooltip_text(Some(
+        "Folder type · changes the view, not which files are received",
+    ));
+    folder_category.update_property(&[gtk::accessible::Property::Label("Folder type")]);
+    bridge_titles.append(&folder_category);
     bridge_titles.append(&bridge_name);
     bridge_titles.append(&bridge_path);
     let open_library_button = gtk::Button::builder()
@@ -1673,6 +1734,18 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     let delivery_list = gtk::ListBox::new();
     delivery_list.add_css_class("activity-list");
     delivery_list.set_selection_mode(gtk::SelectionMode::None);
+    let photo_grid = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(true)
+        .min_children_per_line(2)
+        .max_children_per_line(4)
+        .column_spacing(8)
+        .row_spacing(8)
+        .build();
+    photo_grid.set_widget_name("photo-grid");
+    let files_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    files_content.append(&delivery_list);
+    files_content.append(&photo_grid);
     let activity_empty = gtk::Label::builder()
         .label("Received files will appear here.")
         .xalign(0.0)
@@ -1700,7 +1773,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .vhomogeneous(false)
         .build();
     activity_stack.add_named(&activity_empty_box, Some("empty"));
-    activity_stack.add_named(&delivery_list, Some("list"));
+    activity_stack.add_named(&files_content, Some("list"));
     let file_no_results = gtk::Box::new(gtk::Orientation::Vertical, 8);
     file_no_results.add_css_class("activity-empty");
     file_no_results.append(&gtk::Label::new(Some("No matching files")));
@@ -1800,6 +1873,8 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             bridge_error_page,
             bridge_error_action,
             bridge_name,
+            folder_category,
+            bridge_icon,
             bridge_path,
             bridge_state_icon,
             bridge_state,
@@ -1812,6 +1887,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             activity_stack,
             activity_empty,
             delivery_list,
+            photo_grid,
             file_sort_button,
             file_filter_button,
             file_search,
@@ -2245,6 +2321,7 @@ impl DesktopUi {
         self.widgets.sync_button.set_sensitive(false);
         self.widgets.add_bridge_button.set_sensitive(false);
         self.widgets.settings_button.set_sensitive(false);
+        self.widgets.folder_category.set_sensitive(false);
         self.widgets.sync_label.set_label(label);
         self.widgets
             .sync_indicator
@@ -2656,6 +2733,16 @@ impl DesktopUi {
     }
 
     fn render_snapshot(&self, snapshot: &BridgeSnapshot, auto_receive: bool) {
+        let kind = self
+            .selected_bridge()
+            .map(|view| view.registration.kind)
+            .unwrap_or_default();
+        self.widgets
+            .folder_category
+            .set_selected(u32::from(!kind.is_general()));
+        self.widgets
+            .bridge_icon
+            .set_icon_name(Some(kind.icon_name()));
         self.widgets.title.set_subtitle("Folder");
         self.widgets.bridge_name.set_label(&snapshot.name);
         self.widgets
@@ -2741,6 +2828,20 @@ impl DesktopUi {
         let Some(id) = self.selected_bridge_id.borrow().clone() else {
             return;
         };
+        let context = (
+            id.clone(),
+            self.selected_bridge()
+                .map(|bridge| bridge.registration.kind)
+                .unwrap_or_default(),
+        );
+        if self.rendered_context.borrow().as_ref() != Some(&context) {
+            clear_list_box(&self.widgets.delivery_list);
+            while let Some(child) = self.widgets.photo_grid.child_at_index(0) {
+                self.widgets.photo_grid.remove(&child);
+            }
+            self.rendered_files.borrow_mut().clear();
+            self.rendered_context.replace(Some(context));
+        }
         let view = self
             .file_views
             .borrow()
@@ -2777,32 +2878,91 @@ impl DesktopUi {
                     .map(|directory| (snapshot.library_dir, directory))
             });
         if *self.rendered_files.borrow() != page.entries {
-            let previous = self.rendered_files.borrow();
-            for (index, entry) in page.entries.iter().enumerate() {
-                if previous.get(index) == Some(entry) {
-                    continue;
+            let photos = self
+                .selected_bridge()
+                .is_some_and(|bridge| !bridge.registration.kind.is_general());
+            if photos {
+                clear_list_box(&self.widgets.delivery_list);
+                let gallery_changed = self
+                    .rendered_files
+                    .borrow()
+                    .iter()
+                    .filter(|entry| photos::eligible(entry))
+                    .take(photos::MAX_TILES)
+                    .ne(page
+                        .entries
+                        .iter()
+                        .filter(|entry| photos::eligible(entry))
+                        .take(photos::MAX_TILES));
+                if gallery_changed {
+                    while let Some(child) = self.widgets.photo_grid.child_at_index(0) {
+                        self.widgets.photo_grid.remove(&child);
+                    }
                 }
-                if let Some(row) = self.widgets.delivery_list.row_at_index(index as i32) {
+                let root = self
+                    .selected_bridge()
+                    .and_then(|bridge| bridge.snapshot)
+                    .map(|snapshot| snapshot.library_dir);
+                let mut tiles = 0;
+                for entry in &page.entries {
+                    if tiles < photos::MAX_TILES
+                        && photos::eligible(entry)
+                        && let Some(root) = &root
+                    {
+                        if gallery_changed {
+                            self.widgets
+                                .photo_grid
+                                .insert(&photos::tile(entry, root, &self.widgets.window), -1);
+                        }
+                        tiles += 1;
+                    } else {
+                        let file = directory
+                            .as_ref()
+                            .and_then(|(_, directory)| directory.files.get(entry.name()))
+                            .filter(|file| {
+                                entry.id() == format!("directory:{}:{}", file.version, entry.name())
+                            });
+                        self.widgets
+                            .delivery_list
+                            .append(&delivery_row_with_directory(
+                                entry,
+                                file.and_then(|file| {
+                                    root.as_ref().map(|root| (root.as_path(), file))
+                                }),
+                            ));
+                    }
+                }
+            } else {
+                while let Some(child) = self.widgets.photo_grid.child_at_index(0) {
+                    self.widgets.photo_grid.remove(&child);
+                }
+                let previous = self.rendered_files.borrow();
+                for (index, entry) in page.entries.iter().enumerate() {
+                    if previous.get(index) == Some(entry) {
+                        continue;
+                    }
+                    if let Some(row) = self.widgets.delivery_list.row_at_index(index as i32) {
+                        self.widgets.delivery_list.remove(&row);
+                    }
+                    let row = if let Some((root, directory)) = &directory {
+                        let file = directory.files.get(entry.name()).filter(|file| {
+                            entry.id() == format!("directory:{}:{}", file.version, entry.name())
+                        });
+                        delivery_row_with_directory(entry, file.map(|file| (root.as_path(), file)))
+                    } else {
+                        delivery_row(entry)
+                    };
+                    self.widgets.delivery_list.insert(&row, index as i32);
+                }
+                while let Some(row) = self
+                    .widgets
+                    .delivery_list
+                    .row_at_index(page.entries.len() as i32)
+                {
                     self.widgets.delivery_list.remove(&row);
                 }
-                let row = if let Some((root, directory)) = &directory {
-                    let file = directory.files.get(entry.name()).filter(|file| {
-                        entry.id() == format!("directory:{}:{}", file.version, entry.name())
-                    });
-                    delivery_row_with_directory(entry, file.map(|file| (root.as_path(), file)))
-                } else {
-                    delivery_row(entry)
-                };
-                self.widgets.delivery_list.insert(&row, index as i32);
+                drop(previous);
             }
-            while let Some(row) = self
-                .widgets
-                .delivery_list
-                .row_at_index(page.entries.len() as i32)
-            {
-                self.widgets.delivery_list.remove(&row);
-            }
-            drop(previous);
             self.rendered_files.replace(page.entries);
         }
         self.widgets
@@ -3001,6 +3161,7 @@ impl DesktopUi {
         self.widgets.refresh_button.set_sensitive(idle);
         self.widgets.add_bridge_button.set_sensitive(idle);
         self.widgets.settings_button.set_sensitive(idle);
+        self.widgets.folder_category.set_sensitive(idle && valid);
         self.widgets.sync_button.set_sensitive(idle && valid);
         self.widgets.open_library_button.set_sensitive(valid);
     }
@@ -3482,6 +3643,7 @@ fn create_bridge(
     config.validate()?;
     let resources = BridgeResources::from_config(&config);
     let registration = BridgeRegistration {
+        kind: Default::default(),
         id: bridge_id.clone(),
         name,
         config_path: config_path.clone(),
@@ -4051,7 +4213,7 @@ fn bridge_row(bridge: &BridgeView, unread: bool, sync_failed: bool) -> gtk::List
 
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     content.add_css_class("bridge-row");
-    let icon = gtk::Image::from_icon_name("folder-symbolic");
+    let icon = gtk::Image::from_icon_name(bridge.registration.kind.icon_name());
     icon.set_pixel_size(16);
     icon.add_css_class("bridge-icon");
     content.append(&icon);
@@ -4400,6 +4562,7 @@ mod tests {
             .registry
             .update(|registry| {
                 registry.add(BridgeRegistration {
+                    kind: Default::default(),
                     id: id.to_owned(),
                     name: name.to_owned(),
                     config_path,

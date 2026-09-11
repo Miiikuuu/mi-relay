@@ -73,6 +73,9 @@ class UploadWorker(context: Context, params: WorkerParameters) : Worker(context,
                 return Result.success()
             }
             // The durable local receipt comes BEFORE removing the replayable tus session.
+            // Build a bounded, disposable preview BEFORE publishing completion or
+            // deleting the staging original. This never changes the sync source.
+            if (FileFilter.isImageName(transfer.name)) store.photoPreviews.prepare(transferId, File(dir, "payload"))
             if (store.updateOwned(transferId, workId, TransferStatus.UPLOADED, result.getLong("size"), delivery = result.getString("delivery_id"))) {
                 File(dir, "payload").delete()
                 File(dir, "resume.json").delete()

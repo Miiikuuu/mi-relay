@@ -108,6 +108,43 @@ class DeviceDirectoryTest {
         assertTrue(linux(pair).getJSONArray("files").toString().contains("offline.bin"))
         app.auto.refreshReceipts(pair.folder);assertTrue(app.store.transfers.value.all{it.received || it.superseded})
     }
+    @Test fun photosFilterPreviewSkipsOnlyAfterConsentAndCanWidenWithoutResettingVersions(){
+        val pair=pair();linux(pair,"prepare",listOf("linux-only.txt" to "keep".toByteArray()))
+        app.store.setFolderKind(pair.folder,FolderKind.PHOTOS)
+        AutoFixture.put("photo",64,extra={putString("name","image.JPG")})
+        AutoFixture.put("note",32,extra={putString("name","notes.txt")})
+        AutoFixture.put("partial",0,extra={putString("name","image.jpg.part")})
+        ui.runOnIdle {model().selected.value=pair.folder;model().openAuto(pair.folder)}
+        ui.waitUntil(15000) {!model().busy.value}
+        ui.runOnIdle {model().acceptAutoTree(pair.folder,AutoFixture.tree)}
+        assertEquals(FileFilter.IMAGES,model().directoryFilter.value)
+        ui.onNodeWithText("Preview changes").performClick()
+        ui.waitUntil(15000) {!model().busy.value && model().directoryPreview.value!=null}
+        assertEquals(2,model().directoryPreview.value!!.skipped.size)
+        assertEquals(listOf("image.JPG"),model().directoryPreview.value!!.missing)
+        ui.onNodeWithTag("filter-preview-summary").performScrollTo().assertIsDisplayed()
+        screenshot("photos-filter-preview")
+        assertTrue(app.store.transfers.value.isEmpty());assertNull(app.store.automatic.source(pair.folder))
+        ui.onNodeWithText("Initialize sync").performClick()
+        ui.waitUntil(30000) {!model().busy.value && app.store.automatic.source(pair.folder)?.directorySync==true}
+        uploaded(1);val first=app.store.transfers.value.single()
+        assertEquals("image.JPG",first.relativePath);assertEquals(FileFilter.IMAGES,app.store.automatic.source(pair.folder)!!.fileFilter)
+        val firstReceipt=linux(pair);assertEquals(sha(bytes(64)),firstReceipt.getJSONObject("receipts").getJSONObject("image.JPG").getString("sha256"))
+        assertTrue(firstReceipt.getJSONArray("files").toString().contains("linux-only.txt"))
+        app.auto.refreshReceipts(pair.folder);app.auto.pause(pair.folder)
+        // Remove only a synthetic empty fixture so All files can meet the existing nonempty-file rule.
+        AutoFixture.control("remove",Bundle().apply{putString("id","partial")})
+        ui.onNodeWithTag("filter-all").performScrollTo().performClick()
+        ui.onNodeWithText("Preview changes").performClick()
+        ui.waitUntil(15000) {!model().busy.value && model().directoryPreview.value?.fileFilter==FileFilter.ALL}
+        ui.onNodeWithText("Apply filter and resume").performClick()
+        ui.waitUntil(30000) {!model().busy.value && app.store.automatic.source(pair.folder)?.fileFilter==FileFilter.ALL}
+        uploaded(2)
+        assertEquals(first.sourceVersion!!+1,app.store.transfers.value.single{it.relativePath=="notes.txt"}.sourceVersion)
+        val result=linux(pair);assertTrue(result.getJSONArray("files").toString().contains("notes.txt"))
+        app.auto.refreshReceipts(pair.folder);assertTrue(app.store.transfers.value.all{it.received})
+        assertEquals(FolderKind.PHOTOS,app.store.folder(pair.folder)!!.kind)
+    }
     @Test fun changedPreviewCannotEnableAndUnsupportedPathsNeverUpload(){
         val pair=pair();linux(pair,"prepare");AutoFixture.put("file",64,extra={putString("name","first.bin")})
         val preview=app.auto.previewDirectory(pair.folder,AutoFixture.tree)

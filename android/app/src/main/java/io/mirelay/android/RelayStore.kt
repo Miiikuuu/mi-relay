@@ -11,8 +11,9 @@ import java.io.File
 import java.util.UUID
 
 /** All database/filesystem methods run on an IO or WorkManager thread. */
-class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()) : SQLiteOpenHelper(context, "relay.db", null, 4) {
+class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()) : SQLiteOpenHelper(context, "relay.db", null, 5) {
     private val root = File(context.noBackupFilesDir, "outgoing")
+    internal val photoPreviews = PhotoPreviewCache(File(context.cacheDir, "photo-previews"))
     private val mutableFolders = MutableStateFlow<List<Folder>>(emptyList())
     private val mutableTransfers = MutableStateFlow<List<Transfer>>(emptyList())
     private val refreshLock = Any()
@@ -28,9 +29,10 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
         db.execSQL("CREATE INDEX transfer_folder ON transfers(folder_id, created_at DESC)")
         AutoStore.createTables(db)
         DirectorySyncStore.createTables(db)
+        createCategoryColumns(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        check(oldVersion in 1..3 && newVersion == 4) { "Unsupported database version; existing data was not changed." }
+        check(oldVersion in 1..4 && newVersion == 5) { "Unsupported database version; existing data was not changed." }
         if (oldVersion == 1) {
             db.execSQL("ALTER TABLE transfers ADD COLUMN auto_revision TEXT")
             db.execSQL("ALTER TABLE transfers ADD COLUMN auto_unmetered INTEGER NOT NULL DEFAULT 0")
@@ -40,7 +42,21 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
             db.execSQL("ALTER TABLE folders ADD COLUMN pairing_state TEXT NOT NULL DEFAULT 'legacy'")
             db.execSQL("ALTER TABLE folders ADD COLUMN verification TEXT")
         }
-        DirectorySyncStore.createTables(db)
+        if (oldVersion < 4) DirectorySyncStore.createTables(db)
+        createCategoryColumns(db)
+    }
+
+    private fun createCategoryColumns(db: SQLiteDatabase) {
+        db.execSQL("ALTER TABLE folders ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'")
+        db.execSQL("ALTER TABLE auto_sources ADD COLUMN file_filter TEXT NOT NULL DEFAULT 'all'")
+        db.execSQL("ALTER TABLE auto_sources ADD COLUMN filtered INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE directory_previews ADD COLUMN file_filter TEXT NOT NULL DEFAULT 'all'")
+        db.execSQL("ALTER TABLE directory_previews ADD COLUMN skipped TEXT NOT NULL DEFAULT '[]'")
+    }
+
+    fun setFolderKind(id: String, kind: FolderKind) {
+        check(writableDatabase.update("folders", ContentValues().apply { put("kind", kind.key) }, "id=?", arrayOf(id)) == 1) { "Folder no longer exists." }
+        refresh()
     }
 
     // Never hold SQLiteOpenHelper's monitor while waiting for a connection:
@@ -128,7 +144,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     }
     private fun Cursor.str(column: String) = getString(getColumnIndexOrThrow(column))
     private fun Cursor.long(column: String) = getLong(getColumnIndexOrThrow(column))
-    private fun Cursor.folder() = Folder(str("id"), str("name"), str("server"), long("insecure") != 0L, str("pairing_state"), str("verification"))
+    private fun Cursor.folder() = Folder(str("id"), str("name"), str("server"), long("insecure") != 0L, str("pairing_state"), str("verification"), FolderKind.fromKey(str("kind")))
     private fun Cursor.transfer() = Transfer(str("id"), str("folder_id"), str("name"), long("size"), TransferStatus.valueOf(str("status")), long("uploaded"), str("error"), str("delivery_id"), str("work_id"), long("created_at"), str("auto_revision"), long("auto_unmetered") != 0L,
         str("relative_path"), getColumnIndexOrThrow("source_version").let { if (isNull(it)) null else getLong(it) }, str("source_sha256"), long("received") != 0L, long("conflict") != 0L, long("superseded") != 0L)
 }

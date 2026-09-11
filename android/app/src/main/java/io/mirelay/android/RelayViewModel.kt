@@ -22,6 +22,7 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     val autoTree = MutableStateFlow<Uri?>(null)
     val creationTree = MutableStateFlow<Uri?>(null)
     val directoryPreview = MutableStateFlow<DirectoryPreview?>(null)
+    val directoryFilter = MutableStateFlow(FileFilter.ALL)
     private val connection = FolderConnection(application)
 
     init { task { withContext(Dispatchers.IO) { app.auto.recover(); app.uploads.recover() } } }
@@ -29,11 +30,21 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     fun openAuto(folder: String) {
         directoryPreview.value = null
         autoEditor.value = folder
+        directoryFilter.value = app.store.automatic.sources.value.find { it.folderId == folder }?.takeIf { it.directorySync }?.fileFilter
+            ?: if (app.store.folders.value.find { it.id == folder }?.kind == FolderKind.PHOTOS) FileFilter.IMAGES else FileFilter.ALL
         autoTree.value = app.store.automatic.sources.value.find { it.folderId == folder }?.treeUri?.let(Uri::parse)
         task {
             directoryPreview.value = withContext(Dispatchers.IO) { app.store.directorySync.preview(folder) }
-            directoryPreview.value?.let { if (autoEditor.value == folder) autoTree.value = Uri.parse(it.tree) }
+            directoryPreview.value?.let { if (autoEditor.value == folder) { autoTree.value = Uri.parse(it.tree); directoryFilter.value = it.fileFilter } }
         }
+    }
+    fun selectDirectoryFilter(filter: FileFilter) {
+        if (busy.value) return
+        directoryFilter.value = filter
+        directoryPreview.value = null
+    }
+    fun setFolderKind(id: String, kind: FolderKind) = task {
+        withContext(Dispatchers.IO) { app.store.setFolderKind(id, kind) }
     }
     fun acceptAutoTree(folder: String, tree: Uri) {
         if (folder == "new-folder") {
@@ -52,13 +63,15 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     fun previewDirectory(folder: String) = task {
         directoryPreview.value = null
         val tree = requireNotNull(autoTree.value) { "Choose a source directory." }
-        directoryPreview.value = withContext(Dispatchers.IO) { app.auto.previewDirectory(folder, tree) }
+        val filter = directoryFilter.value
+        directoryPreview.value = withContext(Dispatchers.IO) { app.auto.previewDirectory(folder, tree, filter) }
     }
     fun confirmDirectory(folder: String, unmetered: Boolean) = task {
         val tree = requireNotNull(autoTree.value) { "Choose a source directory." }
         val preview = requireNotNull(directoryPreview.value) { "Preview both directories before initializing." }
         require(preview.tree == tree.toString()) { "Source changed. Preview again." }
-        withContext(Dispatchers.IO) { app.auto.confirmDirectory(folder, tree, preview.id, unmetered) }
+        require(preview.fileFilter == directoryFilter.value) { "Filter changed. Preview again." }
+        withContext(Dispatchers.IO) { app.auto.confirmDirectory(folder, tree, preview.id, unmetered, preview.fileFilter) }
         directoryPreview.value = null
     }
     fun resumeDirectory(folder: String, unmetered: Boolean) = task {
@@ -88,7 +101,7 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun saveFolder(folder: Folder?, name: String, server: String, token: String, insecure: Boolean,
-        pairingCode: String = "", includeExisting: Boolean = false, done: () -> Unit) = task {
+        pairingCode: String = "", includeExisting: Boolean = false, kind: FolderKind = folder?.kind ?: FolderKind.GENERAL, done: () -> Unit) = task {
         val tree = if (folder == null) creationTree.value else null
         val id = withContext(Dispatchers.IO) {
             val base = InputRules.server(server, insecure, BuildConfig.DEBUG)
@@ -112,6 +125,7 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
                 info?.let { app.store.pairingResult(key, it.getString("state"), it.optString("verification").takeIf { value -> value != "null" && value.isNotBlank() }) }
                 key
             }
+            app.store.setFolderKind(id, kind)
             if (tree != null) {
                 try { app.auto.enable(id, tree, true, includeExisting, startImmediately = false) }
                 catch (_: Exception) { error.value = "Folder connection saved, but the source directory could not be initialized. Open Auto to choose it again. Nothing was automatically sent." }

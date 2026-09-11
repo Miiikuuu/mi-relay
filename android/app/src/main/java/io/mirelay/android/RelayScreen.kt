@@ -49,7 +49,9 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     else lightColorScheme(primary = ink, onPrimary = Color.White, surface = paper, background = paper,
         surfaceContainer = Color(0xFFF0F0EE), secondary = Color(0xFF60605D))
     MaterialTheme(colorScheme = colors) {
-        val folders by model.folders.collectAsStateWithLifecycle()
+        // Capture one immutable list per composition. The lazy provider must not
+        // read a newer State value while measuring an older item/key interval.
+        val folders = model.folders.collectAsStateWithLifecycle().value
         val transfers by model.transfers.collectAsStateWithLifecycle()
         val selected by model.selected.collectAsStateWithLifecycle()
         val pending by model.pending.collectAsStateWithLifecycle()
@@ -60,6 +62,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
         val autoTree by model.autoTree.collectAsStateWithLifecycle()
         val creationTree by model.creationTree.collectAsStateWithLifecycle()
         val directoryPreview by model.directoryPreview.collectAsStateWithLifecycle()
+        val directoryFilter by model.directoryFilter.collectAsStateWithLifecycle()
         val folder = folders.find { it.id == selected } ?: folders.firstOrNull()
         val directoryMode = autoSources.any { it.folderId == folder?.id && it.directorySync }
         var editor by remember { mutableStateOf(false) }
@@ -71,21 +74,22 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
 
         ModalNavigationDrawer(drawerState = drawer, drawerContent = {
             ModalDrawerSheet(Modifier.width(280.dp)) {
+                // Membership changes invalidate positional scroll/measurement state;
+                // ordinary status/category updates retain the same drawer instance.
+                key(folders.map { it.id }) {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("folder-drawer")) {
                     item("heading") {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            BrandIcon()
-                            Text("MiRelay", fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                        BrandWordmark(Modifier.padding(12.dp).width(128.dp).height(80.dp).testTag("drawer-brand-wordmark"))
                         Text("Folders", Modifier.padding(12.dp), style = MaterialTheme.typography.labelMedium)
                     }
                     items(folders, key = { "folder:${it.id}" }) { item ->
                         NavigationDrawerItem(label = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            icon = { RelayIcon(item.kind.icon, item.kind.label, Modifier.testTag("folder-icon-${item.id}")) },
                             selected = item.id == folder?.id, onClick = {
                                 model.selected.value = item.id
                                 scope.launch { drawer.close() }
                             }, shape = RoundedCornerShape(10.dp),
-                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = ink, selectedTextColor = Color.White))
+                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = ink, selectedTextColor = Color.White, selectedIconColor = Color.White))
                     }
                     item("add-folder") {
                         TextButton(onClick = { editing = null; editor = true }, enabled = !busy, modifier = Modifier.padding(vertical = 12.dp)) {
@@ -93,22 +97,23 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                         }
                     }
                 }
+                }
             }
         }) {
             Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
-                TopAppBar(title = { Text("MiRelay", fontSize = 19.sp, fontWeight = FontWeight.SemiBold) },
-                    navigationIcon = { IconButton(onClick = { scope.launch { drawer.open() } }) { RelayIcon("menu", "Folders") } },
+                TopAppBar(modifier = Modifier.testTag("brand-top-bar"),
+                    title = { BrandWordmark(Modifier.width(104.dp).height(65.dp).testTag("brand-wordmark")) },
+                    expandedHeight = 72.dp,
                     actions = {
                         if (folder != null) TextButton(enabled = !busy, onClick = { model.openAuto(folder.id) }) {
                             Text(if (autoSources.any { it.folderId == folder.id && it.enabled }) "Auto on" else "Auto")
                         }
                         if (folder != null) IconButton(enabled = !busy, onClick = { editing = folder; editor = true }) { RelayIcon("settings", "Folder settings") }
+                        IconButton(onClick = { scope.launch { drawer.open() } }) { RelayIcon("menu", "Folders") }
                     })
             }) { padding ->
                 if (folder == null) {
                     Column(Modifier.padding(padding).fillMaxSize().testTag("welcome").verticalScroll(rememberScrollState()).padding(28.dp), verticalArrangement = Arrangement.Center) {
-                        BrandWordmark()
-                        Spacer(Modifier.height(20.dp))
                         Text("Your files.\nYour server.", fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(12.dp))
                         Text("Add a Folder to send files to your Linux device through MiRelay.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -127,10 +132,10 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                             LazyColumn(Modifier.fillMaxSize().testTag("folder-content"), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)) {
                                 item("heading") {
                                     if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                        FolderHeading(folder, Modifier.weight(1f), compact = true)
+                                        FolderHeading(folder, Modifier.weight(1f), compact = true) { model.setFolderKind(folder.id, it) }
                                         BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
                                     } else Column {
-                                        FolderHeading(folder)
+                                        FolderHeading(folder) { model.setFolderKind(folder.id, it) }
                                         Spacer(Modifier.height(20.dp))
                                         BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
                                     }
@@ -154,8 +159,16 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                                         Text(if(directoryMode) "Up to date, or waiting for the next directory check." else "Choose files, or share them from another app.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                items(files, key = { "transfer:${it.id}" }) { transfer ->
+                                val gallery = if (folder.kind == FolderKind.PHOTOS) files.filter { it.status == TransferStatus.UPLOADED && FileFilter.isImageName(it.name) } else emptyList()
+                                val galleryIds = gallery.map { it.id }.toSet()
+                                items(files.filter { it.id !in galleryIds }, key = { "transfer:${it.id}" }) { transfer ->
                                     TransferRow(transfer, busy, { model.retry(transfer.id) }, { model.pause(transfer.id) })
+                                }
+                                items(gallery.chunked(2), key = { "photos:${it.first().id}" }) { row ->
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        row.forEach { PhotoCard(it, Modifier.weight(1f)) }
+                                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                                    }
                                 }
                                 item("receipt-note") {
                                     Text(if(directoryMode) "Waiting for Linux means uploaded, not yet received. Receipts refresh with directory checks; conflicts keep both copies on Linux." else "Uploads are confirmed by your server. Linux delivery receipts are not available for delivery-only files.",
@@ -171,12 +184,12 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
         }
         if (editor) FolderEditor(editing, busy, error, creationTree,
             chooseDirectory = { chooseDirectory("new-folder") },
-            onDismiss = { if (!busy) { editor = false; model.creationTree.value = null } }) { name, url, token, insecure, code, history ->
-            model.saveFolder(editing, name, url, token, insecure, code, history) { editor = false }
+            onDismiss = { if (!busy) { editor = false; model.creationTree.value = null } }) { name, url, token, insecure, code, history, kind ->
+            model.saveFolder(editing, name, url, token, insecure, code, history, kind) { editor = false }
         }
         val autoFolder = folders.find { it.id == autoEditor }
         if (autoFolder != null && !editor) AutoEditor(autoFolder, autoSources.find { it.folderId == autoFolder.id }, autoTree,
-            busy, error, directoryPreview, preview = { model.previewDirectory(autoFolder.id) }, confirm = { model.confirmDirectory(autoFolder.id,it) }, resume = { model.resumeDirectory(autoFolder.id,it) },
+            busy, error, directoryPreview, directoryFilter, { model.selectDirectoryFilter(it) }, preview = { model.previewDirectory(autoFolder.id) }, confirm = { model.confirmDirectory(autoFolder.id,it) }, resume = { model.resumeDirectory(autoFolder.id,it) },
             choose = { chooseDirectory(autoFolder.id) }, close = { model.autoEditor.value = null },
             enable = { unmetered, history -> requestNotifications(); model.enableAuto(autoFolder.id, unmetered, history) },
             pause = { model.pauseAuto(autoFolder.id) }, check = { model.checkAuto(autoFolder.id) })
@@ -204,25 +217,19 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     }
 }
 
-@Composable private fun BrandIcon() {
-    Image(painterResource(R.drawable.mirelay_brand_icon), contentDescription = null,
-        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(Color.White),
-        contentScale = ContentScale.Fit)
-}
-
-@Composable private fun BrandWordmark() {
+@Composable private fun BrandWordmark(modifier: Modifier) {
     // Do not crop or tint the supplied opaque artwork, even in dark mode.
     Image(painterResource(R.drawable.mirelay_wordmark), contentDescription = stringResource(R.string.mirelay_brand_description),
-        modifier = Modifier.height(160.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White).testTag("brand-wordmark"),
-        contentScale = ContentScale.Fit)
+        modifier = modifier.clip(RoundedCornerShape(8.dp)).background(Color.White),
+        contentScale = ContentScale.Fit, alignment = Alignment.CenterStart)
 }
 
 @Composable private fun AutoEditor(folder: Folder, source: AutoSource?, tree: android.net.Uri?, busy: Boolean, failure: String?,
-    directoryPreview: DirectoryPreview?, preview: () -> Unit, confirm: (Boolean) -> Unit, resume: (Boolean) -> Unit,
+    directoryPreview: DirectoryPreview?, filter: FileFilter, selectFilter: (FileFilter) -> Unit, preview: () -> Unit, confirm: (Boolean) -> Unit, resume: (Boolean) -> Unit,
     choose: () -> Unit, close: () -> Unit, enable: (Boolean, Boolean) -> Unit, pause: () -> Unit, check: () -> Unit) {
     var directoryMode by rememberSaveable(folder.id, source?.directorySync) { mutableStateOf(source?.directorySync == true || (folder.pairingState != "legacy" && (source == null || source.prepared))) }
     if(directoryMode) {
-        DirectoryEditor(folder,source,tree,busy,failure,directoryPreview,choose,close,preview,confirm,resume,pause,check) { directoryMode=false }
+        DirectoryEditor(folder,source,tree,busy,failure,directoryPreview,filter,selectFilter,choose,close,preview,confirm,resume,pause,check) { directoryMode=false }
         return
     }
     var unmetered by rememberSaveable(folder.id, source?.revision) { mutableStateOf(source?.unmetered ?: true) }
@@ -261,26 +268,37 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
 }
 
 @Composable private fun DirectoryEditor(folder: Folder, source: AutoSource?, tree: android.net.Uri?, busy: Boolean, failure: String?,
-    preview: DirectoryPreview?, choose: () -> Unit, close: () -> Unit, compare: () -> Unit, confirm: (Boolean) -> Unit,
+    preview: DirectoryPreview?, filter: FileFilter, selectFilter: (FileFilter) -> Unit, choose: () -> Unit, close: () -> Unit, compare: () -> Unit, confirm: (Boolean) -> Unit,
     resume: (Boolean) -> Unit, pause: () -> Unit, check: () -> Unit, deliveryMode: () -> Unit) {
     val initialized=source?.directorySync == true
     val enabled=source?.enabled == true
-    val currentPreview=preview?.takeIf { it.tree == tree?.toString() }
+    val changingFilter = initialized && filter != source?.fileFilter
+    val currentPreview=preview?.takeIf { it.tree == tree?.toString() && it.fileFilter == filter }
     var unmetered by rememberSaveable(folder.id,source?.revision) {mutableStateOf(source?.unmetered ?: true)}
     AlertDialog(onDismissRequest={if(!busy) close()}, title={Text("Directory sync")}, containerColor=MaterialTheme.colorScheme.surface,
         text={Column(Modifier.verticalScroll(rememberScrollState()).testTag("directory-editor"),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text(folder.name,fontWeight=FontWeight.Medium)
             Text("Android → Linux",style=MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                FileFilter.entries.forEach { option -> FilterChip(selected=filter==option, onClick={selectFilter(option)}, enabled=!busy && !enabled,
+                    colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ink,selectedLabelColor=Color.White),
+                    label={Text(option.label)}, modifier=Modifier.testTag("filter-${option.key}")) }
+            }
+            Text("Directory sync only. Manual shares and delivery Auto are unchanged. Folder type never changes this rule.",style=MaterialTheme.typography.bodySmall)
+            if(filter==FileFilter.IMAGES) Text("Includes JPG, JPEG, PNG, WebP, GIF, BMP, HEIC, HEIF, AVIF, TIF and TIFF by extension. Other files and unfinished downloads are skipped, never deleted. This is not content or security validation.",style=MaterialTheme.typography.bodySmall)
             if(currentPreview==null || initialized) Text("Keep filenames and subfolders. Sync new and modified files. Deletions do not propagate; conflicts keep both copies on Linux.",style=MaterialTheme.typography.bodySmall)
             if(initialized || currentPreview==null) Text(if(initialized) if(enabled) "On · system-scheduled" else "Paused · version history kept" else "Preview both directories before sending existing files.",style=MaterialTheme.typography.bodySmall)
             tree?.let { Text(currentPreview?.name ?: source?.takeIf { it.treeUri==tree.toString() }?.name ?: android.provider.DocumentsContract.getTreeDocumentId(it),maxLines=3,overflow=TextOverflow.Ellipsis) }
-            if(currentPreview!=null && !initialized) {
+            if(currentPreview!=null && (!initialized || changingFilter)) {
                 HorizontalDivider()
                 Text("${currentPreview.identical} identical · ${currentPreview.missing.size} missing · ${currentPreview.different.size} different",fontWeight=FontWeight.Medium)
                 Text("${currentPreview.destinationOnly} Linux-only files will be kept.",style=MaterialTheme.typography.bodySmall)
+                Text("${currentPreview.skipped.size} skipped · ${currentPreview.fileFilter.label}",style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("filter-preview-summary"))
+                currentPreview.skipped.take(20).forEach { Text("Skip · ${it.path} — ${it.reason}",style=MaterialTheme.typography.bodySmall) }
+                if(currentPreview.skipped.size>20) Text("Showing the first 20 skipped paths.",style=MaterialTheme.typography.labelSmall)
                 (currentPreview.missing.map {"Add · $it"}+currentPreview.different.map {"Update · $it"}).take(50).forEach {Text(it,style=MaterialTheme.typography.bodySmall)}
                 if(currentPreview.missing.size+currentPreview.different.size>50) Text("Showing the first 50 changed paths.",style=MaterialTheme.typography.labelSmall)
-                Text("Initialize sync allows these files and future changes to upload automatically. Linux keeps replaced copies. A changed preview must be reviewed again.",style=MaterialTheme.typography.bodySmall)
+                Text("Confirming this preview allows these files and future changes to upload automatically. Linux keeps replaced copies. A changed preview must be reviewed again.",style=MaterialTheme.typography.bodySmall)
                 TextButton(enabled=!busy,onClick=compare) {Text("Refresh preview")}
             }
             if(!enabled) TextButton(enabled=!busy,onClick=choose) {RelayIcon("folder",null);Spacer(Modifier.width(8.dp));Text(if(initialized) "Restore source access" else "Choose source directory")}
@@ -288,20 +306,32 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
             Text("Checks about every 30 minutes; Android may delay them. Low battery or storage pauses work. No always-on service.",style=MaterialTheme.typography.bodySmall)
             if(!initialized && currentPreview==null) Text("On Linux, add a Folder, enable Directory sync, then review and initialize the destination directory. Complete pairing before previewing here.",style=MaterialTheme.typography.bodySmall)
             source?.lastScan?.let {Text("Last check: ${java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(it))}",style=MaterialTheme.typography.labelSmall)}
-            if(initialized) Text(source.attentionSummary,style=MaterialTheme.typography.bodySmall)
+            if(initialized) {
+                Text(source.attentionSummary,style=MaterialTheme.typography.bodySmall)
+                if(source.fileFilter!=FileFilter.ALL || source.filtered>0) Text("${source.filtered} excluded by filter",style=MaterialTheme.typography.bodySmall)
+            }
             (failure ?: source?.error)?.let {Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
             if(enabled) TextButton(enabled=!busy,onClick=check) {Text("Check now")}
             if(!initialized && !enabled) TextButton(enabled=!busy,onClick=deliveryMode) {Text("Use delivery Auto")}
         }},
         confirmButton={TextButton(enabled=!busy && tree!=null && (initialized || !enabled),onClick={
-            if(initialized) {if(enabled) pause() else resume(unmetered)} else if(currentPreview==null) compare() else confirm(unmetered)
-        }) {Text(if(busy) "Preparing…" else if(initialized) if(enabled) "Pause sync" else "Resume sync" else if(currentPreview==null) "Preview changes" else "Initialize sync")}},
+            if(initialized && !changingFilter) {if(enabled) pause() else resume(unmetered)} else if(currentPreview==null) compare() else confirm(unmetered)
+        }) {Text(if(busy) "Preparing…" else if(initialized && !changingFilter) if(enabled) "Pause sync" else "Resume sync" else if(currentPreview==null) "Preview changes" else if(changingFilter) "Apply filter and resume" else "Initialize sync")}},
         dismissButton={TextButton(enabled=!busy,onClick=close) {Text("Close")}})
 }
 
-@Composable private fun FolderHeading(folder: Folder, modifier: Modifier = Modifier, compact: Boolean = false) {
+@Composable private fun FolderHeading(folder: Folder, modifier: Modifier = Modifier, compact: Boolean = false, selectKind: (FolderKind) -> Unit) {
+    var menu by remember(folder.id) { mutableStateOf(false) }
     Column(modifier) {
-        Text("FOLDER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box {
+            TextButton(onClick={menu=true},modifier=Modifier.testTag("folder-kind"),contentPadding=PaddingValues(horizontal=0.dp)) {
+                RelayIcon(folder.kind.icon,null,Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text(folder.kind.label)
+            }
+            DropdownMenu(expanded=menu,onDismissRequest={menu=false}) {
+                FolderKind.entries.forEach { option -> DropdownMenuItem(text={Text(option.label)},leadingIcon={RelayIcon(option.icon,null)},
+                    onClick={menu=false;selectKind(option)},modifier=Modifier.testTag("kind-${option.key}")) }
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(folder.name, fontSize = if (compact) 22.sp else 28.sp, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(4.dp))
@@ -346,7 +376,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
 }
 
 @Composable private fun FolderEditor(folder: Folder?, busy: Boolean, failure: String?, tree: android.net.Uri?, chooseDirectory: () -> Unit,
-    onDismiss: () -> Unit, save: (String, String, String, Boolean, String, Boolean) -> Unit) {
+    onDismiss: () -> Unit, save: (String, String, String, Boolean, String, Boolean, FolderKind) -> Unit) {
     var name by rememberSaveable(folder?.id) { mutableStateOf(folder?.name.orEmpty()) }
     var server by rememberSaveable(folder?.id) { mutableStateOf(folder?.server.orEmpty()) }
     // Credentials are intentionally not saved in Activity instance state.
@@ -355,6 +385,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     var usePairing by rememberSaveable(folder?.id) { mutableStateOf(folder == null) }
     var pairingCode by remember(folder?.id) { mutableStateOf("") }
     var includeExisting by rememberSaveable(tree) { mutableStateOf(false) }
+    var kindKey by rememberSaveable(folder?.id) { mutableStateOf((folder?.kind ?: FolderKind.GENERAL).key) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (folder == null) "Add Folder" else "Folder settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -386,10 +417,16 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                 }
                 Text(if (usePairing && folder == null) "Use the original server URL and the temporary invitation from Linux. Never paste the administrator credential here. Pairing is verified before sending; credentials are encrypted on this device."
                     else "Legacy connection or existing sender credential. The connection is checked before saving. Tokens are encrypted on this device; Auto requires explicit consent.", style = MaterialTheme.typography.bodySmall)
+                Text("Folder type · display only",style=MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    FolderKind.entries.forEach { option -> FilterChip(selected=kindKey==option.key,onClick={kindKey=option.key},enabled=!busy,
+                        colors=FilterChipDefaults.filterChipColors(selectedContainerColor=ink,selectedLabelColor=Color.White,selectedLeadingIconColor=Color.White),
+                        label={Text(option.label)},leadingIcon={RelayIcon(option.icon,null,Modifier.size(16.dp))},modifier=Modifier.testTag("setup-kind-${option.key}")) }
+                }
                 failure?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         }, confirmButton = { TextButton(enabled = !busy && name.isNotBlank() && server.isNotBlank() && (folder != null || if (usePairing) pairingCode.isNotBlank() else token.isNotBlank()),
-            onClick = { save(name, server, token, insecure, if (usePairing && folder == null) pairingCode else "", includeExisting) }) { Text(if (busy) "Checking…" else "Save") } },
+            onClick = { save(name, server, token, insecure, if (usePairing && folder == null) pairingCode else "", includeExisting,FolderKind.fromKey(kindKey)) }) { Text(if (busy) "Checking…" else "Save") } },
         dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } })
 }
 
@@ -407,6 +444,7 @@ private fun fileSize(bytes: Long): String = when {
                     "menu" -> { moveTo(4f, 7f); lineTo(20f, 7f); moveTo(4f, 12f); lineTo(17f, 12f); moveTo(4f, 17f); lineTo(20f, 17f) }
                     "plus" -> { moveTo(12f, 5f); lineTo(12f, 19f); moveTo(5f, 12f); lineTo(19f, 12f) }
                     "folder" -> { moveTo(3f, 7f); lineTo(9f, 7f); lineTo(11f, 9f); lineTo(21f, 9f); lineTo(21f, 19f); lineTo(3f, 19f); close(); moveTo(3f, 7f); lineTo(3f, 5f); lineTo(10f, 5f); lineTo(12f, 7f); lineTo(20f, 7f) }
+                    "photos" -> { moveTo(5f,3f); lineTo(21f,3f); lineTo(21f,19f); lineTo(5f,19f); close(); moveTo(2f,7f); lineTo(2f,22f); lineTo(17f,22f); moveTo(5f,16f); lineTo(10f,11f); lineTo(14f,15f); lineTo(17f,12f); lineTo(21f,16f); moveTo(15f,7f); lineTo(15.01f,7f) }
                     "upload" -> { moveTo(12f, 16f); lineTo(12f, 4f); moveTo(7f, 9f); lineTo(12f, 4f); lineTo(17f, 9f); moveTo(4f, 16f); lineTo(4f, 20f); lineTo(20f, 20f); lineTo(20f, 16f) }
                     "pause" -> { moveTo(8f, 5f); lineTo(8f, 19f); moveTo(16f, 5f); lineTo(16f, 19f) }
                     "play" -> { moveTo(8f, 5f); lineTo(19f, 12f); lineTo(8f, 19f); close() }

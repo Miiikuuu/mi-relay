@@ -70,13 +70,172 @@ class DeviceUiTest {
     }
     @Test fun emptyStateOpensFolderEditorAndGuardsBlankInput() {
         assertTrue(app.packageManager.getApplicationIcon(app.packageName) is android.graphics.drawable.AdaptiveIconDrawable)
-        ui.onNodeWithTag("brand-wordmark").assertIsDisplayed()
-        ui.onNodeWithContentDescription("MiRelay — Send · Receive — by MiiiKuuu").assertIsDisplayed()
+        assertTopLeftWordmark()
         ui.onNodeWithText("Your files.\nYour server.").assertIsDisplayed()
         saveScreen("brand-welcome")
         ui.onNode(hasText("Add Folder") and hasAnyAncestor(hasTestTag("welcome"))).performClick()
         ui.onNodeWithText("Save").assertIsNotEnabled()
         ui.onNodeWithText("Cancel").performClick()
+    }
+    @Test fun folderHeaderUsesOriginalWordmarkAndMenuStillOpensDrawer() {
+        select(DeviceSupport.folder())
+        assertTopLeftWordmark()
+        ui.onNodeWithText("Auto").assertIsDisplayed().assertIsEnabled()
+        ui.onNodeWithContentDescription("Folder settings").assertIsDisplayed().assertIsEnabled()
+        saveScreen("brand-folder-header")
+        ui.onNodeWithContentDescription("Folders").performClick()
+        ui.onNodeWithTag("drawer-brand-wordmark").assertIsDisplayed()
+        ui.onNodeWithText("MiRelay").assertDoesNotExist()
+        saveScreen("brand-folder-drawer")
+    }
+    @Test fun selectedFolderIconsHaveWhiteInkInBothThemes() {
+        val folder = DeviceSupport.folder()
+        val night = device.executeShellCommand("cmd uimode night").trim().substringAfterLast(' ')
+        try {
+            for (dark in listOf(false, true)) {
+                device.executeShellCommand("cmd uimode night ${if (dark) "yes" else "no"}")
+                ui.waitUntil(15000) {
+                    activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                        (if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO) && !model().busy.value
+                }
+                select(folder)
+                // Theme recreation can restore an already-open drawer. Do not
+                // toggle it closed, and wait for its visibility before sampling.
+                val icon = ui.onNodeWithTag("folder-icon-$folder", useUnmergedTree = true)
+                if (!icon.isDisplayed()) ui.onNodeWithContentDescription("Folders").performClick()
+                ui.waitUntil(15000) { icon.isDisplayed() }
+                for (kind in FolderKind.entries) {
+                    app.store.setFolderKind(folder, kind); ui.waitForIdle()
+                    android.os.SystemClock.sleep(350)
+                    val bounds = ui.onNodeWithTag("folder-icon-$folder", useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInWindow
+                    val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+                    try {
+                        var white = 0; var black = 0
+                        for (y in bounds.top.toInt() until bounds.bottom.toInt()) for (x in bounds.left.toInt() until bounds.right.toInt()) {
+                            val pixel = bitmap.getPixel(x, y)
+                            if (Color.red(pixel) > 230 && Color.green(pixel) > 230 && Color.blue(pixel) > 230) white++
+                            if (Color.red(pixel) < 40 && Color.green(pixel) < 40 && Color.blue(pixel) < 40) black++
+                        }
+                        assertTrue("Selected $kind icon needs white strokes on black: $white / $black", white > 20 && black > white)
+                        writeScreen(bitmap, "selected-icon-${kind.key}-$dark")
+                    } finally { bitmap.recycle() }
+                }
+            }
+        } finally { device.executeShellCommand("cmd uimode night $night") }
+    }
+    @Test fun photosRenderOriginalLocalArtAndCategorySwitchDoesNotChangeTransfers() {
+        val folder=DeviceSupport.folder()
+        val id=UUID.randomUUID().toString()
+        val dir=app.store.directory(id);assertTrue(dir.mkdirs())
+        val payload=File(dir,"payload")
+        app.resources.openRawResource(R.drawable.mirelay_brand_icon).use {input -> payload.outputStream().use {input.copyTo(it)} }
+        assertNotNull(PhotoThumbnails.decode(payload,256))
+        app.store.addTransfer(id,folder,"Original.png",payload.length())
+        app.store.assign(id,"fixture-owner")
+        app.store.updateOwned(id,"fixture-owner",TransferStatus.UPLOADED,payload.length())
+        val before=app.store.transfer(id)
+        select(folder)
+        ui.onNodeWithTag("folder-kind").performClick()
+        ui.onNodeWithTag("kind-photos").performClick()
+        ui.waitUntil(15000) {!model().busy.value && app.store.folders.value.single().kind==FolderKind.PHOTOS}
+        ui.onNodeWithTag("folder-content").performScrollToNode(hasTestTag("photo-card-$id"))
+        // The clickable tile merges its image semantics into the parent.
+        ui.waitUntil(15000) {ui.onAllNodesWithTag("photo-image-$id",useUnmergedTree=true).fetchSemanticsNodes().isNotEmpty()}
+        ui.onNodeWithTag("photo-image-$id",useUnmergedTree=true).assertIsDisplayed().performTouchInput {click()}
+        ui.onNodeWithText("Local preview · original file unchanged").assertIsDisplayed()
+        // Platform dialog-window fades are not part of Compose's idle clock.
+        android.os.SystemClock.sleep(350)
+        saveScreen("photos-preview")
+        ui.onNodeWithText("Close").performClick()
+        ui.onNodeWithText("Local preview · original file unchanged").assertDoesNotExist()
+        android.os.SystemClock.sleep(350)
+        saveScreen("photos-grid")
+        ui.onNodeWithTag("folder-content").performScrollToIndex(0)
+        ui.onNodeWithTag("folder-kind").performClick();ui.onNodeWithTag("kind-general").performClick()
+        ui.waitUntil(15000) {!model().busy.value && app.store.folders.value.single().kind==FolderKind.GENERAL}
+        ui.onNodeWithTag("photo-card-$id").assertDoesNotExist()
+        assertEquals(before,app.store.transfer(id));assertTrue(payload.isFile)
+    }
+    @Test fun realUploadCleanupKeepsPreviewAcrossActivityRecreationAndFreshDiskReader() {
+        val folder = DeviceSupport.folder()
+        app.store.setFolderKind(folder, FolderKind.PHOTOS)
+        val id = UUID.randomUUID().toString()
+        val dir = app.store.directory(id).apply { mkdirs() }
+        val payload = File(dir, "payload")
+        app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { input -> payload.outputStream().use { input.copyTo(it) } }
+        app.store.addTransfer(id, folder, "Uploaded-original.png", payload.length())
+        val corrupt = DeviceSupport.import(folder, name = "Uploaded-invalid.jpg")
+        for (transfer in listOf(id, corrupt)) app.uploads.enqueue(transfer, manual = true)
+        DeviceSupport.await(60000) {
+            listOf(id, corrupt).all { app.store.transfer(it)?.status == TransferStatus.UPLOADED && !File(app.store.directory(it), "payload").exists() }
+        }
+        assertFalse(File(dir, "resume.json").exists())
+        // No in-memory UI cache has seen this transfer. A fresh reader can only
+        // obtain the independently persisted, derived preview after cleanup.
+        val disk = PhotoPreviewCache(File(app.cacheDir, "photo-previews"))
+        assertNotNull(disk.load(id, 256)); assertNotNull(disk.load(id, 1024))
+        assertNull(disk.load(corrupt, 256))
+        assertNotNull(app.store.transfer(corrupt)!!.deliveryId)
+        select(folder)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.recreate() }
+        ui.waitUntil(15000) { !model().busy.value }
+        select(folder)
+        ui.onNodeWithTag("folder-content").performScrollToNode(hasTestTag("photo-card-$id"))
+        ui.waitUntil(15000) { ui.onAllNodesWithTag("photo-image-$id", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        ui.onNodeWithTag("photo-image-$id", useUnmergedTree = true).assertIsDisplayed().performTouchInput { click() }
+        ui.onNodeWithText("Local preview · original file unchanged").assertIsDisplayed()
+        ui.waitUntil(15000) { ui.onAllNodes(hasTestTag("photo-image-$id") and hasAnyAncestor(isDialog()), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        ui.onNode(hasTestTag("photo-image-$id") and hasAnyAncestor(isDialog()), useUnmergedTree = true).assertIsDisplayed()
+        android.os.SystemClock.sleep(350)
+        saveScreen("photos-real-upload-preview")
+        ui.onNodeWithText("Close").performClick()
+    }
+    @Test fun corruptImageFallsBackAndPhotosKeepPendingTransfersAheadOfGallery() {
+        val folder=DeviceSupport.folder();app.store.setFolderKind(folder,FolderKind.PHOTOS)
+        val id=DeviceSupport.import(folder,name="broken.jpg")
+        app.store.assign(id,"fixture-owner");app.store.updateOwned(id,"fixture-owner",TransferStatus.UPLOADED,4096)
+        val pending=DeviceSupport.import(folder,name="pending.jpg");app.store.pause(pending)
+        assertNull(PhotoThumbnails.decode(File(app.store.directory(id),"payload"),256))
+        select(folder)
+        ui.onNodeWithText("pending.jpg").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Resume or retry transfer").assertIsDisplayed()
+        ui.onNodeWithTag("folder-content").performScrollToNode(hasTestTag("photo-card-$id"))
+        ui.onNodeWithText("Preview unavailable").assertIsDisplayed()
+    }
+    @Test fun drawerSurvivesRepeatedEmptyAndRepopulatedLists() {
+        repeat(12) { index ->
+            val id=DeviceSupport.folder("Transient $index")
+            select(id)
+            ui.onNodeWithContentDescription("Folders").performClick()
+            ui.onNodeWithTag("folder-drawer").performScrollToIndex(2)
+            // Exercise the visible drawer shrinking to only heading + Add Folder.
+            app.store.writableDatabase.execSQL("DELETE FROM folders")
+            app.store.refresh()
+            ui.waitForIdle()
+            ui.onNode(hasText("Add Folder") and hasAnyAncestor(hasTestTag("folder-drawer"))).assertIsDisplayed()
+            val replacement=DeviceSupport.folder("Replacement $index")
+            ui.onNode(hasText("Replacement $index") and hasAnyAncestor(hasTestTag("folder-drawer"))).assertIsDisplayed().performClick()
+            ui.waitForIdle()
+            assertEquals(replacement,model().selected.value)
+            // Also change the off-screen drawer while the main content is alive.
+            app.store.writableDatabase.execSQL("DELETE FROM folders");app.store.refresh()
+            ui.waitForIdle();ui.onNodeWithTag("welcome").assertIsDisplayed()
+        }
+    }
+    private fun assertTopLeftWordmark() {
+        val mark = ui.onNodeWithTag("brand-wordmark").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val bar = ui.onNodeWithTag("brand-top-bar").fetchSemanticsNode().boundsInRoot
+        assertTrue("Wordmark must stay at the left edge", mark.left - bar.left < bar.width * 0.1f)
+        assertTrue("Wordmark must fit inside the app bar", mark.top >= bar.top && mark.bottom <= bar.bottom)
+        assertTrue("Wordmark must stay left of the toolbar actions", mark.right <=
+            ui.onNodeWithContentDescription("Folders").assertIsDisplayed().fetchSemanticsNode().boundsInRoot.left)
+        // ModalDrawer keeps its off-screen content composed while closed.
+        // Check the header and welcome separately, not all composed nodes.
+        val branded = hasContentDescription("MiRelay — Send · Receive — by MiiiKuuu")
+        ui.onAllNodes(branded and hasAnyAncestor(hasTestTag("brand-top-bar"))).assertCountEquals(1)
+        ui.onAllNodes(branded and hasAnyAncestor(hasTestTag("welcome"))).assertCountEquals(0)
+        ui.onNodeWithTag("drawer-brand-wordmark").assertIsNotDisplayed()
+        ui.onNodeWithText("MiRelay").assertDoesNotExist()
     }
     @Test fun autoDirectoryPickerCanBeCancelledWithoutConsentOrTransfer() {
         select(DeviceSupport.folder())
@@ -302,6 +461,9 @@ class DeviceUiTest {
         withDisplay(fontScale = 1.8f) {
             device.setOrientationLeft()
             ui.waitUntil(10000) { device.displayWidth > device.displayHeight }
+            assertTopLeftWordmark()
+            ui.onNodeWithText("Auto").assertIsDisplayed()
+            ui.onNodeWithContentDescription("Folder settings").assertIsDisplayed()
             assertFileAndFooterReachable("large-font-visible.bin")
             saveScreen("landscape-large-font")
         }
@@ -401,6 +563,7 @@ class DeviceUiTest {
                     actual == (if (dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO) && !model().busy.value
                 }
                 ui.waitForIdle()
+                assertTopLeftWordmark()
                 assertActionPixels("Choose files", "theme-$index")
                 ui.runOnIdle { model().busy.value = true }
                 ui.onNodeWithText("Preparing…").assertIsNotEnabled()

@@ -1,0 +1,444 @@
+{
+  "schema": 1,
+  "date": "2026-09-13",
+  "base_commit": "e50afbd28400b674f374cb29012de3f03bde955e",
+  "dirty_working_tree": true,
+  "frozen_candidate": false,
+  "remote_ci_run": false,
+  "release_approved": false,
+  "scope": "CI configuration and directory lock lifecycle; local source tests, not release artifact acceptance",
+  "host": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+  "toolchains": [
+    "1.88.0",
+    "1.98.1"
+  ],
+  "gtk": {
+    "version": "4.22.4",
+    "libadwaita": "1.9.1",
+    "backend": "broadway",
+    "renderer": "cairo",
+    "display": ":17",
+    "bind": "127.0.0.1:8097",
+    "test_daemon_stopped": true,
+    "ci_xvfb_run_locally": false
+  },
+  "lockfiles": {
+    "root": "bc817cf320e4782c1dced1be1c4b473973863f580995f7b95ca8646d2b474273",
+    "android_native": "c96d7a973db258db0035daf2a9fea5f4a67399784a5b206dd5218ea9f6f108fc"
+  },
+  "before_fix": {
+    "exit_code": 101,
+    "passed": 0,
+    "failed": 2,
+    "ignored": 0,
+    "mechanism": "Real fork/pre-exec child retaining Sender and Receiver root lock descriptors",
+    "log": "target/ci-lock-audit-DFDGaQlJ/before-fork-regression.log",
+    "log_sha256": "5fe1fe21602362035b389e6f5aded96563ff12ee026a3f47e8812ed524822423",
+    "binary": "target/ci-lock-audit-DFDGaQlJ/before-directory-locking",
+    "binary_sha256": "339e12518aaa001be8d2a80f6301176f71825120187b28ef13a803ae9cb4d24a",
+    "test_source_sha256": "7f73bcd8a453738f8466455ad51d23151c4a4337d50882987c68c1dd8ca75dd8"
+  },
+  "unchanged_baseline": {
+    "repetitions": 50,
+    "test_threads": 8,
+    "all_passed": true,
+    "original_intermittent_failure_reproduced": false,
+    "report": "target/ci-lock-audit-DFDGaQlJ/baseline-parallel.json",
+    "report_sha256": "3eff322a17f50cc92a448e98f3c7a938d940d0795abfe529004603416cb8856c"
+  },
+  "new_unique_lock_tests": 5,
+  "reports": [
+    {
+      "label": "locks-stress",
+      "report": "target/ci-reports/locks-stress/result.json",
+      "report_sha256": "bf58cbf8ca7627a1d76a671ca8aa553ea1919858c030555ffcbd7fc4feb99d84",
+      "source_index_sha256": "285f13eda744948e6ac9c8f2d85887be98d5ce505662a82b24c568ca9244c67d",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "directory_locking",
+        "--",
+        "--test-threads=4"
+      ],
+      "started_at_utc": "2026-09-13T07:19:47.159597+00:00",
+      "completed": true,
+      "repetitions_completed": 50,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "label": "desktop-parallel-final",
+      "report": "target/ci-reports/desktop-parallel-final/result.json",
+      "report_sha256": "ef5afbbe2a57ede2fec584c81e73a821910fa234930e94859748c1c3983a59bd",
+      "source_index_sha256": "6e1884b9a5c2212a80f465a814910afd2c29e8fff18fd07f8e5ccecade9421b6",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "desktop",
+        "--all-targets",
+        "--",
+        "--test-threads=8"
+      ],
+      "started_at_utc": "2026-09-13T07:28:57.164146+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 226,
+          "failed": 0,
+          "ignored": 17
+        }
+      ]
+    },
+    {
+      "label": "default-parallel-final",
+      "report": "target/ci-reports/default-parallel-final/result.json",
+      "report_sha256": "f052bc5dde0def9becf1ffb3fa0ecc2ff09417e8467d92a2551a01c000cbed9b",
+      "source_index_sha256": "6e1884b9a5c2212a80f465a814910afd2c29e8fff18fd07f8e5ccecade9421b6",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-targets",
+        "--",
+        "--test-threads=8"
+      ],
+      "started_at_utc": "2026-09-13T07:29:32.394721+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 131,
+          "failed": 0,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "label": "clippy-clean",
+      "report": "target/ci-reports/clippy-clean/result.json",
+      "report_sha256": "02213093c06d88fc1f0a96431db7476e5c261e19bf9d95a71f84ebe58e73017f",
+      "source_index_sha256": "6e1884b9a5c2212a80f465a814910afd2c29e8fff18fd07f8e5ccecade9421b6",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "started_at_utc": "2026-09-13T07:28:49.168136+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        null
+      ]
+    },
+    {
+      "label": "gtk-local-qr",
+      "report": "target/ci-reports/gtk-local-qr/result.json",
+      "report_sha256": "03063285392a3e61c8aaf71c72f0fc8d545058cb78a8fa15bb2f83b96e31af96",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "desktop",
+        "--lib",
+        "desktop::pairing_panel::qr::tests::gtk_qr_expiry_invalid_input_and_replacement",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "started_at_utc": "2026-09-13T07:30:10.078837+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "label": "gtk-local-create",
+      "report": "target/ci-reports/gtk-local-create/result.json",
+      "report_sha256": "4eb66ff01cace4f88dfbb1cafd9e4bae805a6d025ad0c83c52e6af41554f240b",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "desktop",
+        "--lib",
+        "desktop::pairing_panel::tests::gtk_create_keeps_invalid_credentials_and_shows_inline_results",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "started_at_utc": "2026-09-13T07:30:14.650242+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "label": "gtk-local-preview",
+      "report": "target/ci-reports/gtk-local-preview/result.json",
+      "report_sha256": "41810adb283e827b0bd2c0f73ea62dd3e282058375d67a121390d807931c1cde",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "desktop",
+        "--lib",
+        "desktop::photos::tests::gtk_preview_decodes_and_survives_rapid_replacement",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "started_at_utc": "2026-09-13T07:30:15.420640+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "label": "gtk-local-lifecycle",
+      "report": "target/ci-reports/gtk-local-lifecycle/result.json",
+      "report_sha256": "a5b53ca9430d7b8c35899bf42a2fa77819978ac91d9bf21aa896613f3d453acf",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "desktop",
+        "--lib",
+        "desktop::photos::grid_tests::album_preview_lifecycle_faults",
+        "--",
+        "--exact",
+        "--ignored",
+        "--test-threads=1"
+      ],
+      "started_at_utc": "2026-09-13T07:30:16.221499+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "label": "workflow-final",
+      "report": "target/ci-reports/workflow-final/result.json",
+      "report_sha256": "69d86a23e37c60c1647adf739d60643c86cefc4116dfbf2e2f06a8c6bd893b22",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "target/ci-lock-audit-DFDGaQlJ/actionlint",
+        "-color"
+      ],
+      "started_at_utc": "2026-09-13T07:33:42.391654+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        null
+      ]
+    },
+    {
+      "label": "fmt-final",
+      "report": "target/ci-reports/fmt-final/result.json",
+      "report_sha256": "e4dc0a0600bda2780fbf3b7284b0f683581af3cdad4f23c521f9f859c6301d11",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "started_at_utc": "2026-09-13T07:33:42.530523+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        null
+      ]
+    },
+    {
+      "label": "native-fmt-final",
+      "report": "target/ci-reports/native-fmt-final/result.json",
+      "report_sha256": "03b28cd7eaa312fbc55812fc216ad0a96878ea5078d008521d7f5b73ac558a39",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "android/native/Cargo.toml",
+        "--",
+        "--check"
+      ],
+      "started_at_utc": "2026-09-13T07:33:43.015087+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        null
+      ]
+    },
+    {
+      "label": "python-final",
+      "report": "target/ci-reports/python-final/result.json",
+      "report_sha256": "b57951c714121afb439ea6f657083d4ff6232bb75c4896170d192accdb41feed",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "started_at_utc": "2026-09-13T07:33:43.245409+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        null
+      ],
+      "python_tests_passed": 11
+    },
+    {
+      "label": "deploy-final",
+      "report": "target/ci-reports/deploy-final/result.json",
+      "report_sha256": "6d015382a753e5fbafd4e56795ef52d7989b50a233c0a0ecb1f90ec03a02a4ae",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "deploy",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "started_at_utc": "2026-09-13T07:33:44.677195+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        null
+      ],
+      "python_tests_passed": 13
+    },
+    {
+      "label": "msrv-desktop-final",
+      "report": "target/ci-reports/msrv-desktop-final/result.json",
+      "report_sha256": "6218e794eb99d93f428b1cd0536f45176db2b0bd8c13cb8125842f0f7c09004d",
+      "source_index_sha256": "90891a37f7fc1dc2688883a58011eef5a9b7689deb6e26ab3bcdcc391683fbbe",
+      "command": [
+        "cargo",
+        "+1.88.0",
+        "test",
+        "--locked",
+        "--all-targets",
+        "--features",
+        "desktop",
+        "--",
+        "--test-threads=8"
+      ],
+      "started_at_utc": "2026-09-13T07:33:28.327346+00:00",
+      "completed": true,
+      "repetitions_completed": 1,
+      "exit_codes": [
+        0
+      ],
+      "rust_counts_per_run": [
+        {
+          "passed": 226,
+          "failed": 0,
+          "ignored": 17
+        }
+      ]
+    }
+  ],
+  "caveats": [
+    "Per-toolchain/default/desktop/repeated counts overlap; do not sum as unique scenarios.",
+    "The deterministic defect is fixed; the historical unrecorded event is not uniquely attributed.",
+    "Report input indexes identify the tested working tree at each run; documentation was subsequently updated.",
+    "Local default/desktop tests do not replace GTK/JNI/emulator/phone/VM/final-release artifact acceptance.",
+    "No push, production deployment, phone install, signing or release was performed."
+  ]
+}

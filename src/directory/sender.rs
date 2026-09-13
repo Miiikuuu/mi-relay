@@ -1,6 +1,7 @@
 //! Explicit initial consent followed by durable, one-way change delivery.
 use super::{
     client::DirectoryClient,
+    lock::DirectoryLock,
     receiver::{MAX_FILE, Root, load, save},
     *,
 };
@@ -12,7 +13,7 @@ use crate::{
 use anyhow::Context;
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
@@ -46,8 +47,9 @@ pub struct Sender {
     root: Root,
     state: PathBuf,
     ledger: Ledger,
+    // Root ownership must end before a waiting state-lock owner is admitted.
+    _root_lock: DirectoryLock,
     _lock: StateLock,
-    _root_lock: File,
 }
 impl Sender {
     pub fn open(directory: &Path, state: &Path, scope: &str) -> Result<Self> {

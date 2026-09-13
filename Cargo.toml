@@ -2,7 +2,7 @@
 name = "mirelay"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Privacy-first file delivery CLI and self-hosted server"
 default-run = "mirelay"
 

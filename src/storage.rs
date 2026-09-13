@@ -381,10 +381,10 @@ fn copy_and_inspect(
         if size > max_file_size {
             bail!("media exceeds the configured {max_file_size} byte limit");
         }
-        if let Some(expected) = expected_size {
-            if size > expected {
-                bail!("media is larger than its declared {expected} byte size");
-            }
+        if let Some(expected) = expected_size
+            && size > expected
+        {
+            bail!("media is larger than its declared {expected} byte size");
         }
 
         if header.len() < HEADER_SIZE {
@@ -398,10 +398,10 @@ fn copy_and_inspect(
             .context("failed while writing media bytes")?;
     }
 
-    if let Some(expected) = expected_size {
-        if size != expected {
-            bail!("media size mismatch: expected {expected} bytes, got {size}");
-        }
+    if let Some(expected) = expected_size
+        && size != expected
+    {
+        bail!("media size mismatch: expected {expected} bytes, got {size}");
     }
     if size == 0 {
         bail!("media file is empty");

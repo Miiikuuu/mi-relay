@@ -284,8 +284,10 @@ mod tests {
         let mut surface = render(STATIC_FRAME_MICROSECONDS, 240, 240, [1.0, 1.0, 1.0, 0.5]);
         let data = surface.data().unwrap();
         let max_alpha = data
-            .chunks_exact(4)
-            .map(|pixel| u32::from_ne_bytes(pixel.try_into().unwrap()) >> 24)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| u32::from_ne_bytes(*pixel) >> 24)
             .max()
             .unwrap();
         assert!((127..=141).contains(&max_alpha));

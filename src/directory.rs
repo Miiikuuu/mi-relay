@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 
 pub mod client;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod lock;
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
 pub mod receiver;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 pub mod sender;

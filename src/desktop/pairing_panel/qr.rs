@@ -166,17 +166,16 @@ impl InvitationQr {
                             area.upgrade(),
                             data.upgrade(),
                             expiry.upgrade(),
-                        ) {
-                            if expiry.get() == expires {
-                                data.borrow_mut().take();
-                                expiry.set(0);
-                                button.popdown();
-                                button.set_sensitive(false);
-                                button.set_tooltip_text(Some(
-                                    "Invitation expired. Replace the invitation to scan again.",
-                                ));
-                                area.queue_draw();
-                            }
+                        ) && expiry.get() == expires
+                        {
+                            data.borrow_mut().take();
+                            expiry.set(0);
+                            button.popdown();
+                            button.set_sensitive(false);
+                            button.set_tooltip_text(Some(
+                                "Invitation expired. Replace the invitation to scan again.",
+                            ));
+                            area.queue_draw();
                         }
                     },
                 );

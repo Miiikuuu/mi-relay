@@ -7,7 +7,8 @@ is required to change this host. See [Folder pairing](../docs/folder-pairing.md)
 ## Assisted install, upgrade and check
 
 Requires Linux/systemd, Python 3.9+, curl, iproute2, useradd/getent, and compatible
-release binaries. Build the backend on a development machine with
+release binaries. Build the backend from the repository root on a development
+machine using the [pinned Rust toolchain](../docs/toolchains.md) (MSRV 1.88) with
 `cargo build --locked --release --bin mirelay-server` and copy the correct
 architecture/libc build to the VPS. Obtain a compatible Caddy release from its
 official distribution. Independently verify expected artifact SHA-256 values.

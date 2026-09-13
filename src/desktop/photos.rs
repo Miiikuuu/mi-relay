@@ -360,13 +360,12 @@ impl Preview {
         let job = Rc::new(RefCell::new(None::<glib::SourceId>));
         let pending = job.clone();
         stack.connect_map(move |stack| {
-            if stack.visible_child_name().as_deref() == Some("loading")
-                && pending.borrow().is_none()
-            {
-                if let Some(source) = current.borrow().clone() {
-                    let id = begin_preview(stack, source, edge, crop, pending.clone());
-                    pending.replace(Some(id));
-                }
+            // End the pending RefCell borrow before installing the new job.
+            let waiting = stack.visible_child_name().as_deref() == Some("loading")
+                && pending.borrow().is_none();
+            if waiting && let Some(source) = current.borrow().clone() {
+                let id = begin_preview(stack, source, edge, crop, pending.clone());
+                pending.replace(Some(id));
             }
         });
         let stopped = job.clone();

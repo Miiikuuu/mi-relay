@@ -1,6 +1,6 @@
 //! Linux directory projection. No followed symlinks, no deletions, no blind
 //! overwrite: replaced inodes are retained beside the file as private history.
-use super::{client::DirectoryClient, *};
+use super::{client::DirectoryClient, lock::DirectoryLock, *};
 use crate::{
     fsutil::{atomic_write, create_dir_all_durable, read_limited, sync_directory},
     source::DeliverySource,
@@ -60,7 +60,7 @@ impl Root {
         let metadata = self.file.metadata()?;
         Ok((metadata.dev(), metadata.ino()))
     }
-    pub(super) fn lock_sender(&self) -> Result<File> {
+    pub(super) fn lock_sender(&self) -> Result<DirectoryLock> {
         let lock = File::from(openat(
             &self.file,
             ".mirelay-sender.lock",
@@ -72,8 +72,7 @@ impl Root {
             Mode::from_bits_truncate(0o600),
         )?);
         ensure!(lock.metadata()?.is_file(), "Invalid sender directory lock.");
-        fs2::FileExt::try_lock_exclusive(&lock).context("Another sender owns this directory.")?;
-        Ok(lock)
+        DirectoryLock::acquire(lock).context("Another sender owns this directory.")
     }
     fn parent(&self, path: &str, create: bool) -> Result<(File, String)> {
         validate_path(path)?;
@@ -321,8 +320,10 @@ pub struct Receiver {
     root: Root,
     state: PathBuf,
     ledger: Ledger,
+    // Fields drop in declaration order: release root ownership before waking
+    // a same-state waiter. DirectoryLock also releases fork-inherited copies.
+    _root_lock: DirectoryLock,
     _lock: StateLock,
-    _root_lock: File,
 }
 impl Receiver {
     /// Read persisted status without recovery, network access, or touching the
@@ -361,8 +362,8 @@ impl Receiver {
             Mode::from_bits_truncate(0o600),
         )?);
         ensure!(root_lock.metadata()?.is_file(), "Invalid directory lock.");
-        fs2::FileExt::try_lock_exclusive(&root_lock)
-            .context("Another receiver owns this directory.")?;
+        let root_lock =
+            DirectoryLock::acquire(root_lock).context("Another receiver owns this directory.")?;
         let metadata = root.file.metadata()?;
         let ledger = match load::<Ledger>(&state.join("receiver.json"))? {
             Some(ledger) => {

@@ -63,8 +63,13 @@ copies have no automatic retention cleanup yet.
 
 ### Linux app
 
-Use a recent stable Rust toolchain. The desktop app needs GTK 4.6+, libadwaita,
-and GLib's resource compiler. On Debian/Ubuntu:
+Rust **1.88** is the minimum for the locked root and Android-native builds.
+`rust-toolchain.toml` pins development and candidate builds to **1.98.1** without
+changing rustup's global default. See [toolchains and build validation](docs/toolchains.md)
+for the tested matrix, prerequisites and explicit MSRV commands.
+See [CI and acceptance boundaries](docs/ci.md) for automated checks and the
+separate [release validation status](RELEASE_VALIDATION.md).
+The desktop app needs GTK 4.6+, libadwaita, and GLib's resource compiler. On Debian/Ubuntu:
 
 ```bash
 sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-bin

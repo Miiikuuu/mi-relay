@@ -1,0 +1,183 @@
+{
+  "base_commit": "e50afbd28400b674f374cb29012de3f03bde955e",
+  "metadata_overlays": {
+    "Cargo.toml": "11b1708612110351f58aa11744daa8921c1b0241747d68ae7bce756501b926e2",
+    "android/native/Cargo.toml": "fcdbc4655071e0549d8b2408a4f460dfa83a75738b3e3cb3435161d52e4c1634",
+    "rust-toolchain.toml": "887f9be066a15585a2c583578e84b0fcb541126d81546276bad3d2ff00d61167"
+  },
+  "source_index_sha256": "00bdf7ca2bf7b90666573497eeb3d4f7b85a2b64b27d6cdc64cbf82cf18c9b50",
+  "raw_results_sha256": "d66abae69286ba4b879857ce8ef0f6a89f43b395c673be1b94ba3b961b7c770e",
+  "build_matrix": [
+    {
+      "name": "1.88.0-default",
+      "exit_code": 0,
+      "elapsed_seconds": 192.13,
+      "log": "1.88.0-default.log",
+      "log_sha256": "af394123a24e41cacfd95f879e4e1e631274d88a007221bbf349ec0b793249fe"
+    },
+    {
+      "name": "1.88.0-desktop",
+      "exit_code": 0,
+      "elapsed_seconds": 170.52,
+      "log": "1.88.0-desktop.log",
+      "log_sha256": "8d53afa29454737e408da930af2d84a6cde3473b9a57a5b06f910ac55546910f"
+    },
+    {
+      "name": "1.88.0-aarch64-linux-android",
+      "exit_code": 0,
+      "elapsed_seconds": 235.45,
+      "log": "1.88.0-aarch64-linux-android.log",
+      "log_sha256": "e2e22ed84bfb8876ed30dafd7b5c80192ce9a6f11327fdebd91de47dc119e604"
+    },
+    {
+      "name": "1.88.0-x86_64-linux-android",
+      "exit_code": 0,
+      "elapsed_seconds": 199.51,
+      "log": "1.88.0-x86_64-linux-android.log",
+      "log_sha256": "d9d7320b9e0c1df386fedd9f463e68354986589faaffe531d3762efe0c99802e"
+    },
+    {
+      "name": "1.98.1-default",
+      "exit_code": 0,
+      "elapsed_seconds": 164.78,
+      "log": "1.98.1-default.log",
+      "log_sha256": "e2765b2b15dd4a84d7b5bf577a34d30707bfb26759ad041310a5d660079b73f6"
+    },
+    {
+      "name": "1.98.1-desktop",
+      "exit_code": 0,
+      "elapsed_seconds": 109.64,
+      "log": "1.98.1-desktop.log",
+      "log_sha256": "3dc90e4204d2182d8a31b7db0765a3f7088dabe7b7c64a50c3fe948e4fbaeac2"
+    },
+    {
+      "name": "1.98.1-aarch64-linux-android",
+      "exit_code": 0,
+      "elapsed_seconds": 227.33,
+      "log": "1.98.1-aarch64-linux-android.log",
+      "log_sha256": "228d4f555bbae2c7252cf6d6eaf64d747e08ccac70cc2a462ecdca975eb5de79"
+    },
+    {
+      "name": "1.98.1-x86_64-linux-android",
+      "exit_code": 0,
+      "elapsed_seconds": 197.08,
+      "log": "1.98.1-x86_64-linux-android.log",
+      "log_sha256": "e5dd6d256ea605ad0649307223500ae9b4e2756b3389d3f66c6738388ae30f97"
+    }
+  ],
+  "artifacts": {
+    "build-1.88.0/debug/mirelay": "3359bc5d2f608150ec9b7b7fa74bd4143bd3ad50a6d4388e087801e40d4caa51",
+    "build-1.88.0/debug/mirelay-upload": "923f712a6ac6eeda1b1e420089382bc7d5d10dfdbdec9373f01432f0b93f3d8e",
+    "build-1.88.0/debug/mirelay-server": "6d6f11a86ba20f8248a9fec8baa689dcf10af71751323930233150dead6b8fa2",
+    "build-1.88.0/debug/mirelay-desktop": "6669c2736e0d9f7b3edae01f4d9cb70e6b843d4921a1368d1c9bf69264bc56ce",
+    "build-1.88.0/aarch64-linux-android/release/libmirelay_android.so": "cc8dacbd384b28138e5330a61fbdc0da978b7a4e00e48ee72ace9bcebf7c47e0",
+    "build-1.88.0/x86_64-linux-android/release/libmirelay_android.so": "3dfeeaa76f12adee39041bed7877c1bf1ace9437fba0bb77cbe5b50c5cd87c88",
+    "build-1.98.1/debug/mirelay": "e1939f550aaf9ed33968166bcbf52bb80ab65842f4b81143496ef0aa21f6c9b9",
+    "build-1.98.1/debug/mirelay-upload": "80cb13c120cd08d42bfca736a1baf19d51be31e9522b57883df48c103ea23e93",
+    "build-1.98.1/debug/mirelay-server": "4d958b96a5373f36fef12c78694308ec971daa861d91919e2122e7cbfe456212",
+    "build-1.98.1/debug/mirelay-desktop": "a70703923506da72d268c4e0e53488b6ffda3683b99834e3f9a9a0f440514c02",
+    "build-1.98.1/aarch64-linux-android/release/libmirelay_android.so": "cbc50191874246c1e1504f853c68b9592b0c34bd6b07cb6b80b4b80e3f6213f5",
+    "build-1.98.1/x86_64-linux-android/release/libmirelay_android.so": "d7c6e7f607bc5c2fdd81ee041812b5a169f1c261521d5e75a11a42f76eff3d93"
+  },
+  "jni_elf": {
+    "build-1.88.0/aarch64-linux-android/release/libmirelay_android.so": {
+      "machine": "AArch64",
+      "load_alignment_bytes": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    },
+    "build-1.88.0/x86_64-linux-android/release/libmirelay_android.so": {
+      "machine": "Advanced Micro Devices X86-64",
+      "load_alignment_bytes": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    },
+    "build-1.98.1/aarch64-linux-android/release/libmirelay_android.so": {
+      "machine": "AArch64",
+      "load_alignment_bytes": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    },
+    "build-1.98.1/x86_64-linux-android/release/libmirelay_android.so": {
+      "machine": "Advanced Micro Devices X86-64",
+      "load_alignment_bytes": [
+        16384,
+        16384,
+        16384,
+        16384
+      ]
+    }
+  },
+  "scope": "A1 only; ELF alignment is not APK/device acceptance",
+  "date": "2026-09-13",
+  "host": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+  "system_libraries": {
+    "gtk": "4.22.4",
+    "libadwaita": "1.9.1"
+  },
+  "ndk_revision": "27.2.12479018",
+  "locks": {
+    "Cargo.lock": "bc817cf320e4782c1dced1be1c4b473973863f580995f7b95ca8646d2b474273",
+    "android/native/Cargo.lock": "c96d7a973db258db0035daf2a9fea5f4a67399784a5b206dd5218ea9f6f108fc"
+  },
+  "runner_sha256": "2995ed7dc9a249a8ef043939f0907419eef0fe32eb10a3a0c27302207fc2dc66",
+  "runtime_regressions": [
+    {
+      "toolchain": "1.88.0",
+      "command": [
+        "cargo",
+        "+1.88.0",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "desktop",
+        "--lib",
+        "--tests",
+        "--quiet",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 217,
+      "failed": 0,
+      "ignored": 17,
+      "log": "1.88.0-runtime-serial.log",
+      "log_sha256": "4dcd7f1a3d202d013ef043323a74a32529a11925640e11cecff896c518f5b018"
+    },
+    {
+      "toolchain": "1.98.1",
+      "command": [
+        "cargo",
+        "+1.98.1",
+        "test",
+        "--offline",
+        "--locked",
+        "--features",
+        "desktop",
+        "--lib",
+        "--tests",
+        "--quiet",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 217,
+      "failed": 0,
+      "ignored": 17,
+      "log": "1.98.1-runtime-serial.log",
+      "log_sha256": "2aadb08b8843d9954099bfaaae7e47bdbd3c2147547dfc7cd74eaaa9c73c0f35"
+    }
+  ],
+  "parallel_lock_issue_closed": false,
+  "frozen_release_candidate": false
+}

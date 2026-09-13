@@ -90,7 +90,7 @@ original opaque artwork in both themes. Notifications retain a separate symbolic
 transfer icon. Original assets, attribution and integration notes are in
 [the brand directory](../assets/brand/README.md).
 
-Linux prerequisites: Rust/rustup, curl, jq, unzip, tar, CMake, and a host C/C++ toolchain. The optional bootstrap downloads a repository-local JDK 17, Gradle 8.13, Android SDK 36/build-tools 35, NDK r27c, platform-tools, and installs the ARM64/x86_64 Rust targets. Generated assets, SDK, caches, and debug keys are ignored by Git. It does not edit shell startup files or the existing desktop environment.
+Linux prerequisites: Rust/rustup, curl, jq, unzip, tar, CMake, and a host C/C++ toolchain. Both Rust packages require **Rust 1.88 or newer**; the repository pins **1.98.1** for development/candidate builds. The Android-native lockfile is separate from the root lockfile and must be checked independently; see [toolchain validation](../docs/toolchains.md). The optional bootstrap downloads a repository-local JDK 17, Gradle 8.13, Android SDK 36/build-tools 35, NDK r27c, platform-tools, and installs the ARM64/x86_64 Rust targets. Generated assets, SDK, caches, and debug keys are ignored by Git. It does not edit shell startup files or the existing desktop environment.
 
 Read the [Android SDK license](https://developer.android.com/studio#terms-and-conditions), then explicitly opt in:
 

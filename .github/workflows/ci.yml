@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_BUILD_JOBS: '1'
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_TERM_COLOR: never
+
+jobs:
+  rust:
+    name: Rust ${{ matrix.toolchain }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ['1.88.0', '1.98.1']
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-bin dbus-x11
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: Toolchain identity
+        run: python3 scripts/ci-run.py --label rustc -- rustc -vV
+      - name: Default baseline
+        run: python3 scripts/ci-run.py --label default --min-tests 1 -- cargo test --locked --all-targets -- --test-threads=8
+      - name: Desktop baseline
+        run: dbus-run-session -- python3 scripts/ci-run.py --label desktop --min-tests 1 -- cargo test --locked --features desktop --all-targets -- --test-threads=8
+      - name: Parallel lock lifecycle regression
+        run: python3 scripts/ci-run.py --label locks --repeat 25 --min-tests 4 --timeout 90 -- cargo test --locked --test directory_locking -- --test-threads=4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: rust-${{ matrix.toolchain }}-${{ github.sha }}
+          path: target/ci-reports/
+          retention-days: 14
+          if-no-files-found: warn
+
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: '1.98.1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-bin
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy --component rustfmt
+      - run: python3 scripts/ci-run.py --label fmt -- cargo fmt --all -- --check
+      - run: python3 scripts/ci-run.py --label native-fmt -- cargo fmt --manifest-path android/native/Cargo.toml -- --check
+      - run: python3 scripts/ci-run.py --label clippy -- cargo clippy --locked --all-targets --all-features -- -D warnings
+      - run: python3 scripts/ci-run.py --label deploy -- python3 -m unittest discover -s deploy -p 'test_*.py' -v
+      - run: python3 scripts/ci-run.py --label scripts -- python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Validate workflow syntax
+        run: |
+          curl --fail --silent --show-error --location --retry 3 -o "$RUNNER_TEMP/actionlint.tar.gz" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          printf '%s  %s\n' '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8' "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          python3 scripts/ci-run.py --label workflow -- "$RUNNER_TEMP/actionlint" -color
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: quality-${{ github.sha }}
+          path: target/ci-reports/
+          retention-days: 14
+
+  gtk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: '1.98.1'
+      GDK_BACKEND: x11
+      GSK_RENDERER: cairo
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libadwaita-1-dev libglib2.0-bin dbus-x11 xvfb
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: GTK invitation lifecycle
+        run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-qr --min-tests 1 -- cargo test --locked --features desktop --lib desktop::pairing_panel::qr::tests::gtk_qr_expiry_invalid_input_and_replacement -- --exact --ignored --test-threads=1
+      - name: GTK create validation
+        run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-create --min-tests 1 -- cargo test --locked --features desktop --lib desktop::pairing_panel::tests::gtk_create_keeps_invalid_credentials_and_shows_inline_results -- --exact --ignored --test-threads=1
+      - name: GTK preview lifecycle
+        run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-preview --min-tests 1 -- cargo test --locked --features desktop --lib desktop::photos::tests::gtk_preview_decodes_and_survives_rapid_replacement -- --exact --ignored --test-threads=1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: gtk-${{ github.sha }}
+          path: target/ci-reports/
+          retention-days: 14
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: '1.98.1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Disposable runner toolchain
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          python3 scripts/ci-run.py --label android-bootstrap --timeout 1800 -- bash android/scripts/bootstrap.sh --accept-sdk-license
+      - name: Debug build, JVM tests and lint (not release signing)
+        run: |
+          export ANDROID_HOME="$GITHUB_WORKSPACE/android/.local/sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          python3 scripts/ci-run.py --label android-checks --timeout 2400 -- bash android/scripts/build.sh :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+      - name: Android tool and debug artifact identities
+        run: |
+          export JAVA_HOME="$GITHUB_WORKSPACE/android/.local/jdk"
+          python3 scripts/ci-run.py --label android-java -- "$JAVA_HOME/bin/java" -version
+          python3 scripts/ci-run.py --label android-gradle -- android/.local/gradle-8.13/bin/gradle --version
+          python3 scripts/ci-run.py --label android-hashes -- sha256sum android/app/build/outputs/apk/debug/app-debug.apk android/app/src/main/jniLibs/arm64-v8a/libmirelay_android.so android/app/src/main/jniLibs/x86_64/libmirelay_android.so
+      - name: Host JVM and JNI smoke
+        run: |
+          export JAVA_HOME="$GITHUB_WORKSPACE/android/.local/jdk"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          python3 scripts/ci-run.py --label host-jni -- bash android/scripts/test-jni.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: android-checks-${{ github.sha }}
+          path: |
+            target/ci-reports/
+            android/app/build/test-results/testDebugUnitTest/
+            android/app/build/reports/tests/testDebugUnitTest/
+            android/app/build/reports/lint-results-debug.*
+          retention-days: 14

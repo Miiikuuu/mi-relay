@@ -237,10 +237,10 @@ pub(super) fn open(
     let click = gtk::GestureClick::new();
     let weak = Rc::downgrade(&viewer);
     click.connect_pressed(move |_, count, _, _| {
-        if count == 2 {
-            if let Some(viewer) = weak.upgrade() {
-                viewer.set_zoom(if viewer.zoom.get() > 1.0 { 1.0 } else { 2.0 });
-            }
+        if count == 2
+            && let Some(viewer) = weak.upgrade()
+        {
+            viewer.set_zoom(if viewer.zoom.get() > 1.0 { 1.0 } else { 2.0 });
         }
     });
     scroll.add_controller(click);

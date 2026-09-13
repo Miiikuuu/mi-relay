@@ -545,10 +545,10 @@ impl IntoResponse for TusError {
         response
             .headers_mut()
             .insert(TUS_VERSION, HeaderValue::from_static(TUS_VERSION_VALUE));
-        if let Some(offset) = self.offset {
-            if let Ok(value) = HeaderValue::from_str(&offset.to_string()) {
-                response.headers_mut().insert(UPLOAD_OFFSET, value);
-            }
+        if let Some(offset) = self.offset
+            && let Ok(value) = HeaderValue::from_str(&offset.to_string())
+        {
+            response.headers_mut().insert(UPLOAD_OFFSET, value);
         }
         response
     }

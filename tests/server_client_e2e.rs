@@ -44,6 +44,7 @@ async fn real_server_and_linux_client_complete_the_delivery_protocol() {
 
     let config = Config {
         schema_version: 1,
+        connection_state: Default::default(),
         directory_sync: false,
         device_id: "linux-test-client".into(),
         server: ServerConfig::Http {

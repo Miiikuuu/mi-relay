@@ -61,7 +61,7 @@ An upgrade/recovery rehearsal can run without host root using bubblewrap:
 python3 deploy/rehearse-upgrade.py \
   --old-binary /absolute/path/previous-mirelay-server \
   --new-binary /absolute/path/new-mirelay-server \
-  --old-schema 2 --new-schema 3
+  --old-schema 3 --new-schema 4
 ```
 
 This uses disposable user/mount/PID/network namespaces, synthetic files, real
@@ -71,17 +71,21 @@ It covers failed checksum/backup/fsync, migration, interrupted tus retention,
 pairing, post-start health failure without database rollback, and isolated restore.
 Backup directories and their parent entries are fsynced before replacing live files.
 
-The current rehearsal defaults to schema **2 → 3** (directory sync). It seeds both
+The current rehearsal defaults to schema **3 → 4** (Folder disconnection). It seeds both
 ready and unclaimed Folders plus a partially uploaded scoped tus file before the
-upgrade, compares every pre-existing table exactly, preserves both credentials,
+upgrade, compares every pre-existing column and row exactly, preserves both credentials,
 and verifies that old Folders are not initialized as directory sync implicitly.
 It also checks a new directory inventory, a Unicode path, restart/resume, legacy
 queue isolation, receipt role/hash checks, and shared-content retention after ACK.
+The only added column allowed on an old Folder is `disconnected=0`; migration
+must not close an existing connection. The rehearsal also checks both-device
+revocation, idempotent retries, rejection after restart and other-Folder isolation.
 Its receipts are synthetic receiver requests after byte verification, not evidence
 of a physical phone or GTK application completing a transfer.
 
 Use `--old-schema 1 --new-schema 2` to repeat the earlier pairing-only migration,
-or `--old-schema 1 --new-schema 3` for a direct upgrade to the current server.
+`--old-schema 2 --new-schema 3` for directory sync, or `--old-schema 1 --new-schema 4`
+for a direct upgrade from the original server. Supply matching binaries.
 Expected schemas are explicit assertions, not inferred from whichever binary
 happens to be present. Inputs are copied and hash-checked before being mounted
 read-only into the namespace; binaries stored under `/tmp` are supported. The
@@ -89,6 +93,8 @@ script must not be run with Python `-O`, which would disable its assertions.
 
 The existing Ubuntu 22.04 VPS backend upgrade was explicitly authorized and
 accepted on September 5, 2026; see [upgrade evidence](../docs/pairing-deployment-2026-09-05.md).
+The schema-4 upgrade was accepted on September 12; see
+[disconnection rollout evidence](../docs/server-disconnection-2026-09-12.md).
 The **fresh root installer remains untested end-to-end**. Other hosts/configurations
 still require their own preflight and backup/recovery acceptance.
 

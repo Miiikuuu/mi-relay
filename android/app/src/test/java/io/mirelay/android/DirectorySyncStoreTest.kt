@@ -188,7 +188,7 @@ class DirectorySyncStoreTest {
             db.version=3
         }
         store=RelayStore(context,cipher);store.refresh()
-        assertEquals(5,store.readableDatabase.version);assertEquals("old-secret",store.token(folder.id));assertEquals("ready",store.folder(folder.id)!!.pairingState)
+        assertEquals(6,store.readableDatabase.version);assertEquals("old-secret",store.token(folder.id));assertEquals("ready",store.folder(folder.id)!!.pairingState)
         assertTrue(store.automatic.source(folder.id)!!.prepared);assertFalse(store.automatic.source(folder.id)!!.directorySync)
         assertEquals("old-receipt",store.transfer("old-transfer")!!.deliveryId);assertNull(store.transfer("old-transfer")!!.relativePath)
     }

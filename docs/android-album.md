@@ -54,14 +54,28 @@ to keep ordinary swipes available while the photo is fitted to the screen.
   levels. It uses the existing strict directory traversal and persisted read grant.
 - Only visible/prefetched tiles and viewer pages request image data. Source reads
   have two concurrent permits and a 15-second provider deadline, with cancellation
-  when requests leave the screen. No image bytes are fetched by the listing scan.
+  when requests leave composition or the host lifecycle drops below STARTED.
+  Listing scans follow the same lifecycle, restart on return, and fetch no image
+  bytes. This does not cancel explicitly enabled background sync/transfer jobs.
 - Source previews require a known nonzero size of at most 32 MiB. A bounded private
   scratch copy supports non-seekable SAF providers. The declared length and source
   metadata are checked before/after reading. Scratch copies are removed afterward;
   leftovers from a previous process are removed at the next source decode.
 - Decoded images are sampled to 256 pixels for tiles / 1024 for the viewer, with
-  a 12 MiB source bitmap cache. The existing 8 MiB transfer-thumbnail cache and
+  a 12 MiB source bitmap cache (8 MiB tiles, 4 MiB viewer). The existing 8 MiB
+  transfer-thumbnail cache (4 MiB tiles, 4 MiB viewer) and
   32 MiB / 128-entry durable upload-preview cache remain separately bounded.
+- Independent size-class budgets keep viewer paging from evicting grid tiles.
+  This reserves viewer capacity, reducing the maximum tile-only working set
+  compared with a shared pool; it is a bounded tradeoff, not a universal cache-hit
+  improvement. Visible bitmaps are never recycled on cache eviction. These cache
+  budgets are not total process-memory limits.
+- Identical concurrent preview requests share the first successful result through
+  32 fixed mutex stripes. There is no unbounded task map, orphaned application
+  scope or retry loop; rare hash collisions can serialize unrelated requests.
+  Source cache hits still verify permission, but skip decode permits, scratch
+  copies and provider-session/deadline-thread creation. A cancelled decode cannot
+  insert its result. Null/failed loads may retry on a later request.
 - A refresh creates a new cache generation, so even providers retaining the same
   size/timestamp are reread on refresh. Permission is rechecked on cache hits.
 - Unsupported, corrupt, missing, virtual, empty or over-limit images show a
@@ -109,3 +123,91 @@ This is development regression coverage, not release/performance certification.
 The 5,000-entry test exercises metadata presentation, not a 5,000-photo scrolling
 benchmark. Physical-phone installation and new album gesture/performance checks
 are separate from these emulator results.
+
+## Performance/lifecycle follow-up — 2026-09-12
+
+Album scanning and preview loading now use lifecycle-aware STARTED scopes rather
+than composition lifetime alone. Returning to the foreground still refreshes the
+library, including unchanged-metadata providers via a new generation. No background
+sync consent, WorkManager policy, database schema, JNI or server protocol changed.
+The original graphics-layer frosted header is retained.
+
+The shared `PreviewMemoryCache` separates tile/viewer budgets, coalesces requests
+and prevents cancelled results from entering memory cache. A source cache hit
+rechecks the persisted grant but no longer starts an `AutoSession` or its deadline
+thread. Independent provider reads still have the same two-permit bound and
+scratch/size/metadata checks. Native bitmap decoding remains non-interruptible;
+late results are discarded rather than falsely claiming immediate codec preemption.
+
+Verification includes eight new JVM regressions: viewer-vs-tile eviction, bounded
+tile eviction/oversized viewer entries, 40 concurrent identical requests, grant
+validation on hits, cancellation during non-cancellable work, null/error retry,
+size/generation identity, and invalid target rejection. All **82 JVM tests** pass.
+Lint reports **0 errors, 14 advisory warnings**. Both debug APKs build with the
+existing native libraries; no Rust/JNI source changed for this optimization.
+
+An initial incremental Kotlin build failed to resolve unchanged project symbols;
+a non-incremental rebuild succeeded (`-Pkotlin.incremental=false`, command-local,
+no persistent toolchain change). The new instrumentation stats helper also needed
+a return-value correction before the test APK compiled.
+
+The first complete 35-case UI run caught an `InterruptedIOException` escaping a
+timeout cancellation: the now-IO-dispatched cache path could receive stream-close
+failure before reaching another coroutine suspension. `AlbumLibrary.read` now
+checks coroutine cancellation before propagating a provider exception, preserving
+genuine errors when the coroutine remains active. The blocked-read regression now
+repeats cancellation five times. The initial failing run is retained in private
+`android/.local/device-qa-o8wm2354/`, not counted as a passing suite.
+
+The corrected build's full **35-case DeviceUiTest group passed** in 143.177 s,
+including five blocked-read cancellations, background cancellation with an empty
+scratch directory/no subsequent opens, resume refresh without uploads, and twenty
+identical concurrent source requests producing exactly one provider open. A new
+scan generation forced a second read; revoking the grant blocked its cache hit.
+Existing gallery, glass, viewer gestures, upload-cleanup, sharing, pairing, theme,
+large-font and short-window cases also passed. The harness independently verified
+six legacy and one paired Linux deliveries (bytes, hashes and acknowledgements).
+Passing artifacts: `android/.local/device-qa-8cl1hagc/`.
+
+Tested APK SHA-256:
+`c1586428e4f24c38916e1c97dff9766e0cd2fd539ec4dd643883c00253211bfe`.
+This pass reran the UI group, not all Android runtime/Auto/directory groups or
+process-kill recovery phases. It is not a large-library phone FPS, long-duration
+battery or release-build certification. Existing physical-phone data was not used
+by the emulator reset/instrumentation harness.
+
+### Physical-phone follow-up
+
+The authorized vivo V2329A/API 36 received the same tested APK via in-place
+`adb install -r --no-streaming`. Its previous APK and app-private data were backed
+up locally; signing certificates matched. The first install was rejected by the
+phone's confirmation UI, then a retry succeeded without disabling security
+settings. The initial archive included a nonexistent preferences directory and
+failed tar validation; it was superseded by validated backups of the directories
+actually present. Android Keystore keys are not exported by these backups.
+
+Immediately before/after installation, SHA-256 comparison confirmed **62 protected
+database/private files unchanged**, including **4 Folders and 57 transfer rows**;
+SQLite integrity passed. No uninstall, data clear, test-provider APK installation,
+new source file, sync enablement or system-setting change occurred on the phone.
+
+The existing paused QA source displayed four image entries: two valid PNG previews
+and two known corrupt-image placeholders. Grid rendering, opening a photo,
+double-tap zoom (checked in before/after screenshots), Next navigation across all
+four entries, close, and Home/foreground restoration worked. The phone's previous
+APK still used the old list-style Photos screen, so this is also its first physical
+check of the newer source-album UI; it is not a matched old/new scrolling benchmark.
+
+Five-second process-CPU samples, on a one-core basis, measured 0% in settled
+foreground and 0% in settled background. Immediate Home transitions measured
+3.50% and 2.73% in separate samples and are explicitly **not steady idle**. A memory
+snapshot reported 175,563 KiB PSS / 297,716 KiB RSS / 29,051 KiB swap PSS. These
+small-library, USB-connected debug measurements do not certify large-library FPS,
+instant zero work, power consumption or long-duration background stability.
+The collected current-process log contained no fatal exception, fatal signal,
+ANR or out-of-memory match; this is a bounded observation, not proof no crash can
+ever occur. Private artifacts: `target/phone-album-perf-VzUBLZ/`.
+
+The dedicated emulator was stopped after testing. The updated phone app was left
+open on the QA album; production sync settings and the existing source pause
+state were preserved. No Git commit or push was performed by this follow-up.

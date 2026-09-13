@@ -30,6 +30,7 @@ use crate::state::StateStore;
 use crate::sync::{SyncEvent, SyncPhase, SyncSummary, status_counts, sync_once_with_events};
 
 mod brand;
+mod connection;
 mod directory_panel;
 #[cfg(test)]
 mod directory_tests;
@@ -81,6 +82,21 @@ impl Default for FileViewOptions {
 }
 
 const DESKTOP_CSS: &str = r#"
+.mirelay .album-grid { background: transparent; }
+.mirelay .album-grid > child { padding: 2px; border-radius: 4px; }
+.mirelay .album-grid > child:hover { background: alpha(@window_fg_color, 0.08); }
+.mirelay .album-grid > child:selected { background: @relay_accent; }
+.mirelay .album-grid aspectframe { background: alpha(@window_fg_color, 0.045); }
+.mirelay .album-page { padding: 16px 20px 12px; }
+.mirelay .album-page .bridge-title { font-size: 24px; }
+.mirelay .album-page .activity-header { margin-top: 0; }
+.mirelay .album-viewer-controls { padding: 10px; }
+.mirelay.album-viewer { background: #151515; color: #f5f5f5; }
+.mirelay.album-viewer headerbar { background: #151515; color: #f5f5f5; }
+.mirelay.album-viewer button { color: #f5f5f5; }
+.mirelay.album-viewer button:disabled { color: #777777; }
+.mirelay.album-viewer :focus-visible { outline-color: #ffffff; }
+.mirelay.album-viewer popover { color: @window_fg_color; }
 .mirelay .brand-button {
   background: #ffffff;
   padding: 2px;
@@ -597,7 +613,8 @@ struct Widgets {
     activity_stack: gtk::Stack,
     activity_empty: gtk::Label,
     delivery_list: gtk::ListBox,
-    photo_grid: gtk::FlowBox,
+    photo_grid: photos::AlbumGrid,
+    album_layout: photos::Layout,
     file_sort_button: gtk::MenuButton,
     file_filter_button: gtk::MenuButton,
     file_search: gtk::SearchEntry,
@@ -1615,6 +1632,15 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     bridge_heading.append(&bridge_icon);
     bridge_heading.append(&bridge_titles);
     bridge_heading.append(&open_library_button);
+    let album_details = gtk::MenuButton::builder()
+        .icon_name("info-outline-symbolic")
+        .tooltip_text("Folder details")
+        .valign(gtk::Align::Center)
+        .popover(&gtk::Popover::new())
+        .visible(false)
+        .build();
+    album_details.add_css_class("flat");
+    bridge_heading.append(&album_details);
 
     let bridge_state_icon = gtk::Image::from_icon_name("network-transmit-receive-symbolic");
     bridge_state_icon.set_pixel_size(16);
@@ -1734,18 +1760,22 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     let delivery_list = gtk::ListBox::new();
     delivery_list.add_css_class("activity-list");
     delivery_list.set_selection_mode(gtk::SelectionMode::None);
-    let photo_grid = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .homogeneous(true)
-        .min_children_per_line(2)
-        .max_children_per_line(4)
-        .column_spacing(8)
-        .row_spacing(8)
+    let photo_grid = photos::AlbumGrid::new(&window);
+    photo_grid.widget.set_visible(false);
+    let activity_scroll = gtk::ScrolledWindow::builder()
+        .max_content_height(180)
+        .propagate_natural_height(true)
+        .hscrollbar_policy(gtk::PolicyType::Never)
         .build();
-    photo_grid.set_widget_name("photo-grid");
+    let album_activity = gtk::Expander::builder()
+        .label("Transfer activity")
+        .child(&activity_scroll)
+        .visible(false)
+        .build();
     let files_content = gtk::Box::new(gtk::Orientation::Vertical, 8);
     files_content.append(&delivery_list);
-    files_content.append(&photo_grid);
+    files_content.append(&album_activity);
+    files_content.append(&photo_grid.widget);
     let activity_empty = gtk::Label::builder()
         .label("Received files will appear here.")
         .xalign(0.0)
@@ -1888,6 +1918,17 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             activity_empty,
             delivery_list,
             photo_grid,
+            album_layout: photos::Layout {
+                page: bridge_page,
+                clamp: bridge_clamp,
+                property_group,
+                details: album_details,
+                activity: album_activity,
+                activity_scroll,
+                files: files_content,
+                title: activity_title,
+                enabled: Rc::new(Cell::new(false)),
+            },
             file_sort_button,
             file_filter_button,
             file_search,
@@ -2680,6 +2721,8 @@ impl DesktopUi {
     }
 
     fn render_empty_state(&self) {
+        self.widgets.photo_grid.clear();
+        self.rendered_context.replace(None);
         self.widgets.title.set_subtitle("Folder");
         clear_list_box(&self.widgets.delivery_list);
         self.rendered_files.borrow_mut().clear();
@@ -2703,6 +2746,8 @@ impl DesktopUi {
             return;
         };
         if let Some(error) = &bridge.error {
+            self.widgets.photo_grid.clear();
+            self.rendered_context.replace(None);
             self.widgets
                 .bridge_error_page
                 .set_title(&format!("{} needs attention", bridge.registration.name));
@@ -2719,6 +2764,8 @@ impl DesktopUi {
         } else if let Some(snapshot) = &bridge.snapshot {
             self.render_snapshot(snapshot, bridge.registration.auto_receive);
         } else {
+            self.widgets.photo_grid.clear();
+            self.rendered_context.replace(None);
             self.widgets
                 .bridge_error_page
                 .set_title(&format!("{} is not loaded", bridge.registration.name));
@@ -2803,13 +2850,15 @@ impl DesktopUi {
             .summary_label
             .set_tooltip_text(Some(&summary_text(&snapshot.counts)));
         self.render_file_list(&snapshot.deliveries);
-        self.widgets.content_stack.set_visible_child_name("bridge");
     }
 
     fn change_file_view(&self, reset_limit: bool, change: impl FnOnce(&mut FileViewOptions)) {
         let Some(id) = self.selected_bridge_id.borrow().clone() else {
             return;
         };
+        if reset_limit {
+            self.widgets.photo_grid.widget.vadjustment().set_value(0.0);
+        }
         {
             let mut views = self.file_views.borrow_mut();
             let view = views.entry(id).or_default();
@@ -2836,12 +2885,15 @@ impl DesktopUi {
         );
         if self.rendered_context.borrow().as_ref() != Some(&context) {
             clear_list_box(&self.widgets.delivery_list);
-            while let Some(child) = self.widgets.photo_grid.child_at_index(0) {
-                self.widgets.photo_grid.remove(&child);
-            }
+            self.widgets.photo_grid.clear();
+            self.widgets.album_layout.activity.set_expanded(false);
             self.rendered_files.borrow_mut().clear();
             self.rendered_context.replace(Some(context));
         }
+        let is_album = self
+            .selected_bridge()
+            .is_some_and(|bridge| !bridge.registration.kind.is_general());
+        self.widgets.album_layout.apply(&self.widgets, is_album);
         let view = self
             .file_views
             .borrow()
@@ -2883,39 +2935,21 @@ impl DesktopUi {
                 .is_some_and(|bridge| !bridge.registration.kind.is_general());
             if photos {
                 clear_list_box(&self.widgets.delivery_list);
-                let gallery_changed = self
-                    .rendered_files
-                    .borrow()
-                    .iter()
-                    .filter(|entry| photos::eligible(entry))
-                    .take(photos::MAX_TILES)
-                    .ne(page
-                        .entries
-                        .iter()
-                        .filter(|entry| photos::eligible(entry))
-                        .take(photos::MAX_TILES));
-                if gallery_changed {
-                    while let Some(child) = self.widgets.photo_grid.child_at_index(0) {
-                        self.widgets.photo_grid.remove(&child);
-                    }
-                }
                 let root = self
                     .selected_bridge()
                     .and_then(|bridge| bridge.snapshot)
                     .map(|snapshot| snapshot.library_dir);
-                let mut tiles = 0;
+                if let Some(root) = &root {
+                    self.widgets.photo_grid.set_entries(&page.entries, root);
+                }
+                let mut other = 0;
+                let mut attention = 0;
+                let mut active = 0;
                 for entry in &page.entries {
-                    if tiles < photos::MAX_TILES
-                        && photos::eligible(entry)
-                        && let Some(root) = &root
-                    {
-                        if gallery_changed {
-                            self.widgets
-                                .photo_grid
-                                .insert(&photos::tile(entry, root, &self.widgets.window), -1);
-                        }
-                        tiles += 1;
-                    } else {
+                    if !photos::eligible(entry) || root.is_none() {
+                        other += 1;
+                        attention += usize::from(entry.needs_attention());
+                        active += usize::from(entry.is_active() || entry.is_pending());
                         let file = directory
                             .as_ref()
                             .and_then(|(_, directory)| directory.files.get(entry.name()))
@@ -2932,10 +2966,26 @@ impl DesktopUi {
                             ));
                     }
                 }
-            } else {
-                while let Some(child) = self.widgets.photo_grid.child_at_index(0) {
-                    self.widgets.photo_grid.remove(&child);
+                let panel = &self.widgets.album_layout.activity;
+                let mut status = format!("Transfer activity · {other} files");
+                if active > 0 {
+                    status.push_str(&format!(" · {active} in progress"));
                 }
+                if attention > 0 {
+                    status.push_str(&format!(" · {attention} need attention"));
+                }
+                panel.set_label(Some(&status));
+                panel.set_visible(other > 0);
+                if self.widgets.photo_grid.len() == 0 {
+                    panel.set_expanded(true);
+                }
+                if attention > 0 {
+                    panel.add_css_class("error");
+                } else {
+                    panel.remove_css_class("error");
+                }
+            } else {
+                self.widgets.photo_grid.clear();
                 let previous = self.rendered_files.borrow();
                 for (index, entry) in page.entries.iter().enumerate() {
                     if previous.get(index) == Some(entry) {
@@ -3261,7 +3311,12 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) -> Option<adw:
     let cancel = gtk::Button::with_label("Cancel");
     let save = gtk::Button::with_label("Save");
     save.add_css_class("suggested-action");
-    save.set_sensitive(is_new_bridge || existing.is_some());
+    save.set_sensitive(
+        is_new_bridge
+            || existing
+                .as_ref()
+                .is_some_and(|c| c.connection_state.is_connected()),
+    );
     header.pack_start(&cancel);
     let remove = gtk::Button::with_label("Remove");
     remove.add_css_class("destructive-action");
@@ -3425,7 +3480,7 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) -> Option<adw:
 
     form.append(&folder_group);
     form.append(&connection_group);
-    form.append(&pairing_panel::panel(
+    let pairing = pairing_panel::panel(
         &dialog,
         &setup_task,
         &name_entry,
@@ -3434,7 +3489,25 @@ fn show_bridge_editor(ui: &Rc<DesktopUi>, mode: BridgeEditorMode) -> Option<adw:
         &token_entry,
         &insecure,
         is_new_bridge,
-    ));
+    );
+    pairing.set_sensitive(
+        existing
+            .as_ref()
+            .is_none_or(|c| c.connection_state.is_connected()),
+    );
+    form.append(&pairing);
+    if let (Some(registration), Some(config)) = (&registration, &existing) {
+        remove.set_sensitive(connection::can_remove(config));
+        form.append(&connection::panel(
+            ui,
+            &dialog,
+            &setup_task,
+            registration,
+            config,
+            &token_entry,
+        ));
+        automation_group.set_sensitive(config.connection_state.is_connected());
+    }
     form.append(&automation_group);
     form.append(&privacy_group);
     form.append(&form_error);
@@ -3697,6 +3770,7 @@ fn update_bridge(
                 registration.config_path.display()
             )
         })?;
+        config.require_connected()?;
         if config.directory_sync {
             let ServerConfig::Http { base_url: previous, .. } = &config.server else { bail!("Invalid directory Folder."); };
             anyhow::ensure!(previous == base_url, "A directory Folder's server cannot be changed. Create a new paired Folder instead.");
@@ -3762,7 +3836,7 @@ fn confirm_remove_bridge(
         .buttons(gtk::ButtonsType::Cancel)
         .text(format!("Remove “{}”?", registration.name))
         .secondary_text(
-            "This only removes the Folder from MiRelay. Its configuration, state, and received files remain.",
+            "This only removes the Folder from MiRelay. Its configuration, state, and files remain. For legacy connections, shared server credentials are NOT revoked.",
         )
         .build();
     dialog.add_button("Remove", gtk::ResponseType::Accept);
@@ -3770,11 +3844,19 @@ fn confirm_remove_bridge(
     let editor = editor.clone();
     dialog.connect_response(move |dialog, response| {
         if response == gtk::ResponseType::Accept {
-            match ui
-                .paths
-                .registry
-                .update(|registry| registry.remove(&registration.id).map(drop))
-            {
+            match ui.paths.registry.update(|registry| {
+                let current = registry
+                    .bridges
+                    .iter()
+                    .find(|b| b.id == registration.id)
+                    .context("Folder no longer exists")?;
+                let config = load_editable_config(&current.config_path)?;
+                anyhow::ensure!(
+                    connection::can_remove(&config),
+                    "Disconnect this Folder on the server before removing it."
+                );
+                registry.remove(&registration.id).map(drop)
+            }) {
                 Ok(()) => {
                     ui.tokens.borrow_mut().remove(&registration.id);
                     editor.close();
@@ -3841,6 +3923,7 @@ fn sync_registered_bridge_with_events(
     emit: &dyn Fn(SyncEvent),
 ) -> Result<SyncResult> {
     let config = load_registered_config(registry, bridge_id, config_path)?;
+    config.require_connected()?;
     if config.directory_sync {
         return directory_panel::receive(config, token, emit);
     }
@@ -3931,9 +4014,7 @@ fn snapshot_from_config(config: Config) -> Result<BridgeSnapshot> {
         ack_pending: raw_counts["ack_pending"],
         acknowledged: raw_counts["acknowledged"],
         wallpaper_pending: raw_counts["wallpaper_pending"],
-        wallpaper_attention: raw_counts["wallpaper_failed"]
-            + raw_counts["wallpaper_uncertain"]
-            + raw_counts["wallpaper_not_configured"],
+        wallpaper_attention: raw_counts["wallpaper_failed"] + raw_counts["wallpaper_uncertain"],
     };
     let source_label = match &config.server {
         ServerConfig::Filesystem { inbox_dir } => {
@@ -5176,6 +5257,36 @@ mod tests {
         assert_eq!(
             delivery_state(&record),
             ("emblem-ok-symbolic", "Received", "state-success")
+        );
+    }
+
+    #[test]
+    fn optional_wallpaper_does_not_mark_received_photos_as_errors() {
+        let root = tempfile::tempdir().unwrap();
+        let config = Config::defaults(InitOverrides {
+            data_dir: Some(root.path().to_owned()),
+            ..Default::default()
+        })
+        .unwrap();
+        config.ensure_directories().unwrap();
+        let store = StateStore::new(config.storage.state_file.clone());
+        let mut state = store.load().unwrap();
+        let mut photo = sample_record("image.png", "image/png");
+        photo.wallpaper_status = WallpaperStatus::NotConfigured;
+        state.deliveries.insert(photo.id.clone(), photo.clone());
+        store.save(&state).unwrap();
+        let snapshot = snapshot_from_config(config.clone()).unwrap();
+        assert_eq!(snapshot.counts.wallpaper_attention, 0);
+        assert!(!summary_text(&snapshot.counts).contains("attention"));
+        photo.wallpaper_status = WallpaperStatus::Failed;
+        state.deliveries.insert(photo.id.clone(), photo);
+        store.save(&state).unwrap();
+        assert_eq!(
+            snapshot_from_config(config)
+                .unwrap()
+                .counts
+                .wallpaper_attention,
+            1
         );
     }
 }

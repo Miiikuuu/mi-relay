@@ -28,6 +28,7 @@ fn digest(bytes: &[u8]) -> String {
 fn http_config(root: &TempDir, base_url: String, page_size: u32) -> Config {
     Config {
         schema_version: 1,
+        connection_state: Default::default(),
         directory_sync: false,
         device_id: "http-test-device".into(),
         server: ServerConfig::Http {

@@ -24,10 +24,15 @@ and metadata. Start with a separate test Folder and keep backups.
 - Manage multiple **Folders**, each with its own destination and connection.
 - Choose local [General / Photos views](docs/folder-categories.md) on Android and
   Linux, with image previews and a separately confirmed Android directory-sync filter.
+  The [Linux album](docs/linux-album.md) has a compact virtualized grid and a
+  read-only viewer with navigation, zoom and fullscreen controls.
 - Browse configured Android sources in a compact [album view](docs/android-album.md),
   with full-screen paging/zoom and a frosted top bar, without starting an upload.
 - Pair one sender and one receiver per Folder using a temporary invitation,
   scoped credentials, and a verification-code confirmation before transfers.
+  [Scan the Linux invitation QR code](docs/qr-pairing.md) on Android, or enter it manually.
+- [Disconnect a Folder](docs/folder-disconnection.md) from either app, revoke both
+  devices on the relay, then remove its local entry without deleting your files.
 - Select an existing Android directory without moving its files or requiring
   all-files access. Preview and explicitly initialize directory sync against an
   existing Linux directory.

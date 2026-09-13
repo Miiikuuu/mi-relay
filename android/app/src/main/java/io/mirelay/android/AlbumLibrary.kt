@@ -3,12 +3,13 @@ package io.mirelay.android
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import android.util.LruCache
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -50,10 +51,7 @@ internal class AlbumLibrary(private val context: Context) {
     private val scratch = File(context.cacheDir, "album-scratch")
     private val scratchLock = Any()
     private var cleaned = false
-    private val cache = object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
-        // Visible composables may still reference evicted bitmaps: never recycle.
-    }
+    private val cache = PreviewMemoryCache(8 * 1024 * 1024, 4 * 1024 * 1024)
 
     private suspend fun <T> read(block: (AutoSession) -> T): T = coroutineScope {
         val session = AutoSession(15_000)
@@ -64,6 +62,13 @@ internal class AlbumLibrary(private val context: Context) {
             finally { withContext(NonCancellable + Dispatchers.IO) { session.cancel() } }
         }
         try { withContext(Dispatchers.IO) { block(session) } }
+        catch (error: Exception) {
+            // Closing a cancelled provider stream can throw InterruptedIOException
+            // before another suspension observes cancellation, especially when
+            // the caller already runs on IO. Preserve structured cancellation.
+            currentCoroutineContext().ensureActive()
+            throw error
+        }
         finally {
             cancellation.cancel()
             withContext(NonCancellable + Dispatchers.IO) { session.close() }
@@ -78,12 +83,13 @@ internal class AlbumLibrary(private val context: Context) {
     suspend fun load(photo: AlbumPhoto, store: RelayStore, target: Int): Bitmap? {
         if (photo.source == null) return PhotoThumbnails.load(store, photo.key, target)
         require(target in 1..1024)
-        return permits.withPermit {
-            read { session ->
-                val tree = Uri.parse(requireNotNull(photo.tree))
-                source.requirePermission(tree) // Includes cache hits after revocation.
-                val key = "${photo.tree}:${photo.key}:${photo.generation}:$target"
-                cache.get(key) ?: decode(photo.source, tree, target, session)?.also { cache.put(key, it) }
+        val tree = Uri.parse(requireNotNull(photo.tree))
+        val key = "${photo.tree}:${photo.key}:${photo.generation}"
+        return cache.load(key, target, validate = { source.requirePermission(tree) }) {
+            // A hit needs neither a decode permit nor an AutoSession/deadline
+            // thread. Only cache misses enter the bounded provider reader.
+            permits.withPermit {
+                read { session -> decode(photo.source, tree, target, session) }
             }
         }
     }

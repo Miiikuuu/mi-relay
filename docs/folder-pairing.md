@@ -19,7 +19,9 @@ the delivery-only workflow below remains available.
    Creation feedback appears beside the administrator field. Failure preserves
    its input for correction; only successful creation clears it. The administrator
    token is not saved to configuration files.
-3. Android **Add Folder** → **Choose existing directory** selects the directory
+3. Linux **Show QR code**, then Android **Add Folder → Scan QR code** fills the
+   HTTPS server URL and invitation. Review the address; scanning is not consent
+   to connect. Manual entry remains available. **Choose existing directory** selects the directory
    already used by Pixiv or another app. The system picker must grant read access;
    MiRelay cannot bypass private app storage/provider restrictions. Enter the
    original server URL and temporary pairing code, never the admin/receiver token.
@@ -42,8 +44,9 @@ at most one delivery descriptor, never downloads or acknowledges it.
 **Persistence limitation:** Linux still keeps entered/generated receiver tokens
 only for the process session. Keep a private copy from Folder Settings, or provide
 the configured environment variable on restart. Keyring storage is not implemented.
-Android credentials are encrypted by Android Keystore. This version uses copy/paste
-pairing codes; camera/QR scanning is not implemented.
+Android credentials are encrypted by Android Keystore. [QR invitations](qr-pairing.md)
+are short-lived secrets and must not be shared publicly; neither QR generation nor
+scanning changes the server's two-party confirmation requirement.
 
 ## Setup protocol
 

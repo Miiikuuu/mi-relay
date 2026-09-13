@@ -48,7 +48,7 @@ class FolderKindTest {
         db.execSQL("ALTER TABLE directory_previews DROP COLUMN file_filter")
         db.execSQL("ALTER TABLE directory_previews DROP COLUMN skipped")
         db.version=4;store.close();store=RelayStore(context,cipher)
-        assertEquals(5,store.readableDatabase.version);assertEquals("original-secret",store.token(id))
+        assertEquals(6,store.readableDatabase.version);assertEquals("original-secret",store.token(id))
         assertEquals(FolderKind.GENERAL,store.folder(id)!!.kind)
         assertEquals(FileFilter.ALL,store.automatic.source(id)!!.fileFilter)
         assertTrue(store.automatic.source(id)!!.prepared);assertFalse(store.automatic.source(id)!!.enabled)

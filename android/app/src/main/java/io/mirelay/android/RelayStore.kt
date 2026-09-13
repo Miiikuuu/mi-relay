@@ -11,7 +11,7 @@ import java.io.File
 import java.util.UUID
 
 /** All database/filesystem methods run on an IO or WorkManager thread. */
-class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()) : SQLiteOpenHelper(context, "relay.db", null, 5) {
+class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()) : SQLiteOpenHelper(context, "relay.db", null, 6) {
     private val root = File(context.noBackupFilesDir, "outgoing")
     internal val photoPreviews = PhotoPreviewCache(File(context.cacheDir, "photo-previews"))
     private val mutableFolders = MutableStateFlow<List<Folder>>(emptyList())
@@ -32,7 +32,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
         createCategoryColumns(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        check(oldVersion in 1..4 && newVersion == 5) { "Unsupported database version; existing data was not changed." }
+        check(oldVersion in 1..5 && newVersion == 6) { "Unsupported database version; existing data was not changed." }
         if (oldVersion == 1) {
             db.execSQL("ALTER TABLE transfers ADD COLUMN auto_revision TEXT")
             db.execSQL("ALTER TABLE transfers ADD COLUMN auto_unmetered INTEGER NOT NULL DEFAULT 0")
@@ -43,7 +43,9 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
             db.execSQL("ALTER TABLE folders ADD COLUMN verification TEXT")
         }
         if (oldVersion < 4) DirectorySyncStore.createTables(db)
-        createCategoryColumns(db)
+        if (oldVersion < 5) createCategoryColumns(db)
+        // Version 6 is a semantic migration: older apps must not reopen this
+        // database and turn disconnect_pending back into ready via handshake.
     }
 
     private fun createCategoryColumns(db: SQLiteDatabase) {
@@ -73,6 +75,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     }
 
     fun saveFolder(id: String?, name: String, server: String, token: String, insecure: Boolean, pairingState: String? = null): String {
+        if (id != null) requireConnectionOpen(id)
         require(name.trim().isNotEmpty() && name.toByteArray(Charsets.UTF_8).size <= 128 && name.none { it.isISOControl() }) { "Enter a Folder name (up to 128 bytes)." }
         val url = InputRules.server(server, insecure, BuildConfig.DEBUG)
         val key = id ?: UUID.randomUUID().toString()
@@ -86,17 +89,65 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
             values.put("id", key)
             writableDatabase.insertOrThrow("folders", null, values)
         } else {
-            require(writableDatabase.update("folders", values, "id = ?", arrayOf(id)) == 1) { "Folder no longer exists." }
+            require(writableDatabase.update("folders", values, "id=? AND pairing_state NOT IN ('disconnect_pending','disconnected')", arrayOf(id)) == 1) { "Folder was removed or disconnected." }
         }
         refresh()
         return key
     }
 
     fun pairingResult(id: String, state: String, verification: String?) {
+        if (state == "disconnected") { beginDisconnect(id); finishDisconnect(id); return }
         require(state in listOf("awaiting_peer", "awaiting_confirmation", "ready"))
         writableDatabase.update("folders", ContentValues().apply {
             put("pairing_state", state); put("verification", verification)
-        }, "id=?", arrayOf(id))
+        }, "id=? AND pairing_state NOT IN ('disconnect_pending','disconnected')", arrayOf(id))
+        refresh()
+    }
+
+    internal fun connectionOpen(id: String): Boolean = readableDatabase.rawQuery(
+        "SELECT 1 FROM folders WHERE id=? AND pairing_state NOT IN ('disconnect_pending','disconnected')", arrayOf(id)
+    ).use { it.moveToFirst() }
+
+    internal fun requireConnectionOpen(id: String) {
+        require(connectionOpen(id)) { "Folder is disconnected or awaiting disconnection. Create a new Folder to reconnect." }
+    }
+
+    /** Durable local barrier BEFORE contacting the server or cancelling workers.
+     * Keep the credential on failure so a lost response can be retried safely. */
+    internal fun beginDisconnect(id: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            requireNotNull(folder(id)) { "Folder no longer exists." }
+            db.execSQL("UPDATE folders SET pairing_state='disconnect_pending',verification=NULL WHERE id=? AND pairing_state!='disconnected'", arrayOf(id))
+            db.execSQL("UPDATE auto_sources SET enabled=0,prepared=0 WHERE folder_id=?", arrayOf(id))
+            db.execSQL("UPDATE transfers SET work_id='',status=CASE WHEN status IN ('QUEUED','UPLOADING') THEN 'PAUSED' ELSE status END WHERE folder_id=?", arrayOf(id))
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+        refresh()
+    }
+
+    internal fun finishDisconnect(id: String) {
+        check(writableDatabase.update("folders", ContentValues().apply {
+            put("pairing_state", "disconnected"); put("token", ""); putNull("verification")
+        }, "id=? AND pairing_state IN ('disconnect_pending','disconnected')", arrayOf(id)) == 1)
+        refresh()
+    }
+
+    /** Local metadata only. Originals, received files and private staged bytes
+     * are never recursively removed, even if an old worker still owns a file. */
+    internal fun removeFolder(id: String) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val current = requireNotNull(folder(id)) { "Folder no longer exists." }
+            require(current.pairingState == "disconnected" || (!current.scoped && current.pairingState == "disconnect_pending")) {
+                "Wait for server disconnection confirmation before removing this Folder."
+            }
+            db.delete("transfers", "folder_id=?", arrayOf(id))
+            check(db.delete("folders", "id=?", arrayOf(id)) == 1)
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
         refresh()
     }
 
@@ -116,10 +167,16 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     }
     fun addTransfer(id: String, folder: String, name: String, size: Long) {
         require(size in 1..MAX_FILE_BYTES)
-        writableDatabase.insertOrThrow("transfers", null, ContentValues().apply {
-            put("id", id); put("folder_id", folder); put("name", name); put("size", size)
-            put("status", TransferStatus.QUEUED.name); put("created_at", System.currentTimeMillis())
-        })
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            requireConnectionOpen(folder)
+            db.insertOrThrow("transfers", null, ContentValues().apply {
+                put("id", id); put("folder_id", folder); put("name", name); put("size", size)
+                put("status", TransferStatus.QUEUED.name); put("created_at", System.currentTimeMillis())
+            })
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
     }
     fun assign(id: String, workId: String) {
         check(writableDatabase.update("transfers", ContentValues().apply {

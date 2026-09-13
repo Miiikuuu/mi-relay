@@ -1,5 +1,6 @@
 use super::*;
 use crate::pairing::PairingClient;
+mod qr;
 
 // Normalize pasted input at the UI boundary, not inside the shared protocol
 // client. Never remove characters from the middle of a credential or echo it.
@@ -142,6 +143,16 @@ pub(super) fn panel(
     ));
     let invitation_row = adw::ActionRow::builder().title("Invitation").build();
     invitation_row.add_suffix(&code);
+    let qr = qr::InvitationQr::new();
+    invitation_row.add_suffix(&qr.button);
+    {
+        let qr = qr.clone();
+        let code = code.clone();
+        url.connect_changed(move |_| {
+            qr.clear();
+            code.set_text("");
+        });
+    }
     group.add(&invitation_row);
     let status = gtk::Label::builder()
         .label("Not checked")
@@ -164,6 +175,7 @@ pub(super) fn panel(
     group.add(&actions);
     let verification = Rc::new(RefCell::new(None::<String>));
     {
+        let qr = qr.clone();
         let (task, name, local, url, token, insecure, admin, code, status, create, feedback) = (
             task.clone(),
             name.clone(),
@@ -203,6 +215,7 @@ pub(super) fn panel(
             admin.set_text(&secret);
             let insecure = insecure.is_active();
             let (url,token,admin,code,status,create,feedback)=(url.clone(),token.clone(),admin.clone(),code.clone(),status.clone(),create.clone(),feedback.clone());
+            let qr = qr.clone();
             status.set_label("Creating…");
             create.set_label("Creating…");
             create_feedback(&feedback, "Creating a new Folder…", false);
@@ -213,9 +226,10 @@ pub(super) fn panel(
                         admin.set_sensitive(false);
                         url.set_text(&format!("{base}/f/{}",folder.folder_id)); token.set_text(&folder.receiver_token);
                         code.set_text(&folder.pairing_code); create.set_sensitive(false);
+                        qr.set(&base, &folder.pairing_code, folder.expires_at_unix);
                         create.set_label("Created");
                         create_feedback(&feedback, "Folder created. Use the invitation below on Android.", false);
-                        status.set_label("Awaiting Android. Copy the invitation and use the original server URL on your phone. Keep a private copy of the receiver token; it is session-only.");
+                        status.set_label("Awaiting Android. Scan the QR code, or copy the invitation and original server URL. Keep a private copy of the receiver token; it is session-only.");
                     }
                     Err(error) => {
                         create.set_label("Create on server");
@@ -246,6 +260,7 @@ pub(super) fn panel(
             confirm.clone(),
             verification.clone(),
         );
+        let qr = qr.clone();
         check.connect_clicked(move |_| {
             let (base, secret, insecure) = (
                 url.text().to_string(),
@@ -257,10 +272,14 @@ pub(super) fn panel(
             confirm.set_sensitive(false);
             *verification.borrow_mut() = None;
             status.set_label("Checking…");
+            let qr = qr.clone();
             task.run(
                 move || PairingClient::new(&base, &secret, insecure)?.handshake(),
                 move |result| match result {
                     Ok(info) if info.role == "receiver" => {
+                        if info.state != "awaiting_peer" {
+                            qr.clear();
+                        }
                         status.set_label(&format!(
                             "{}{}",
                             info.state.replace('_', " "),
@@ -290,12 +309,14 @@ pub(super) fn panel(
             verification.clone(),
             confirm.clone(),
         );
+        let qr = qr.clone();
         confirm.clone().connect_clicked(move |_| {
             let Some(value)=verification.borrow().clone() else { return; };
             let (base,secret,insecure)=(url.text().to_string(),token.text().to_string(),insecure.is_active());
             let (status,confirm)=(status.clone(),confirm.clone()); confirm.set_sensitive(false);
+            let qr = qr.clone();
             task.run(move || PairingClient::new(&base,&secret,insecure)?.confirm(&value), move |result| match result {
-                Ok(_) => status.set_label("Ready · receiver confirmed. Enable Auto on Android when you want automatic sending."),
+                Ok(_) => { qr.clear(); status.set_label("Ready · receiver confirmed. Enable Auto on Android when you want automatic sending."); },
                 Err(error) => status.set_label(&safe_ui_message(&error.to_string(),1000)),
             });
         });
@@ -312,18 +333,23 @@ pub(super) fn panel(
             confirm.clone(),
             verification.clone(),
         );
+        let qr = qr.clone();
         renew.connect_clicked(move |_| {
             let warning = gtk::MessageDialog::builder().transient_for(&dialog).modal(true).message_type(gtk::MessageType::Warning)
                 .buttons(gtk::ButtonsType::Cancel).text("Replace invitation?")
                 .secondary_text("This disconnects the current sender and blocks new transfers until you confirm a new pairing. Files already received stay unchanged.").build();
             warning.add_button("Disconnect and replace",gtk::ResponseType::Accept);
             let (task,url,token,insecure,status,code,confirm,verification)=(task.clone(),url.clone(),token.clone(),insecure.clone(),status.clone(),code.clone(),confirm.clone(),verification.clone());
+            let qr = qr.clone();
             warning.connect_response(move |warning,response| {
                 if response == gtk::ResponseType::Accept {
                     let (base,secret,insecure)=(url.text().to_string(),token.text().to_string(),insecure.is_active());
                     let (status,code,confirm,verification)=(status.clone(),code.clone(),confirm.clone(),verification.clone());
+                    let qr = qr.clone();
+                    qr.clear();
+                    let qr_base = base.rsplit_once("/f/").map(|(base,_)| base.to_owned());
                     task.run(move || PairingClient::new(&base,&secret,insecure)?.renew(),move |result| match result {
-                        Ok(invite)=>{ code.set_text(&invite.pairing_code); status.set_label("Awaiting Android · old sender disconnected"); confirm.set_sensitive(false); *verification.borrow_mut()=None; }
+                        Ok(invite)=>{ code.set_text(&invite.pairing_code); if let Some(base) = &qr_base { qr.set(base, &invite.pairing_code, invite.expires_at_unix); } status.set_label("Awaiting Android · old sender disconnected"); confirm.set_sensitive(false); *verification.borrow_mut()=None; }
                         Err(error)=>status.set_label(&safe_ui_message(&error.to_string(),1000)),
                     });
                 }

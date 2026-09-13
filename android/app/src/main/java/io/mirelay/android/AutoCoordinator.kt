@@ -112,6 +112,9 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
         }
     }
     @Synchronized fun pause(folder: String, reason: String? = null) = uploads.pauseAutomatic(folder, reason)
+    // Use the same scheduling lock as recover/enable/settle. Otherwise a scan
+    // could enqueue a periodic job immediately after Folder-wide cancellation.
+    @Synchronized internal fun stopFolder(folder: String) = uploads.stopFolder(folder)
     @Synchronized internal fun pauseIfCurrent(source: AutoSource, reason: String) {
         if (store.automatic.active(source.folderId, source.revision)) pause(source.folderId, reason)
     }

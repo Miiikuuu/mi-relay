@@ -15,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import androidx.work.WorkManager
+import kotlinx.coroutines.async
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.After
@@ -58,6 +59,79 @@ class DeviceUiTest {
         app.unregisterActivityLifecycleCallbacks(lifecycle)
     }
     private fun select(folder: String) { ui.runOnIdle { model().selected.value = folder }; ui.waitForIdle() }
+
+    @Test fun disconnectRequiresConfirmationAndRemovalKeepsStagedFiles() {
+        val invite = DeviceSupport.invitation()
+        val connection = FolderConnection(app)
+        val secret = connection.newSenderToken()
+        val claimed = connection.claim(DeviceSupport.server, invite.getString("pairing_code"), secret, true)
+        val folder = app.store.saveFolder(null, "Disconnect QA", connection.folderUrl(DeviceSupport.server, invite.getString("pairing_code")), secret, true, "awaiting_confirmation")
+        app.store.pairingResult(folder, "awaiting_confirmation", claimed.getString("verification"))
+        val transfer = DeviceSupport.import(folder, name = "keep-private.bin")
+        val staged = File(app.store.directory(transfer), "payload")
+        val bytes = staged.readBytes()
+        select(folder)
+        ui.onNodeWithContentDescription("Folder settings").performClick()
+        ui.onNodeWithTag("remove-folder").assertIsNotEnabled()
+        ui.onNodeWithTag("disconnect-folder").performClick()
+        ui.onNodeWithText("Disconnect Folder?").assertIsDisplayed()
+        // Cancelling never changes durable state.
+        ui.onAllNodesWithText("Cancel").onLast().performClick()
+        assertEquals("awaiting_confirmation", app.store.folder(folder)!!.pairingState)
+        ui.onNodeWithTag("disconnect-folder").performClick()
+        ui.onAllNodesWithText("Disconnect").onLast().performClick()
+        ui.waitUntil(20000) { !model().busy.value && app.store.folder(folder)?.pairingState == "disconnected" }
+        assertFalse(app.store.connectionOpen(folder))
+        assertEquals(TransferStatus.PAUSED, app.store.transfer(transfer)!!.status)
+        assertTrue(runCatching { app.uploads.enqueue(transfer, manual = true) }.isFailure)
+        assertTrue(runCatching { app.store.saveFolder(folder, "Changed", app.store.folder(folder)!!.server, secret, true, "ready") }.isFailure)
+        assertArrayEquals(bytes, staged.readBytes())
+        ui.onNodeWithText("Save").assertIsNotEnabled()
+        ui.onNodeWithTag("remove-folder").assertIsEnabled().performClick()
+        ui.onNodeWithText("Remove Folder?").assertIsDisplayed()
+        ui.onNodeWithText("Remove", substring = false).performClick()
+        ui.waitUntil(15000) { !model().busy.value && app.store.folder(folder) == null }
+        assertNull(app.store.transfer(transfer))
+        assertArrayEquals(bytes, staged.readBytes())
+        assertEquals("disconnected", DeviceSupport.setupRequest("/f/${invite.getString("folder_id")}/api/v1/pairing/disconnect", invite.getString("receiver_token"), org.json.JSONObject()).getString("state"))
+    }
+
+    @Test fun failedDisconnectKeepsCredentialAndDurableBarrierAgainstStaleWork() {
+        val folder = DeviceSupport.folder("Offline pairing", "http://127.0.0.1:1/f/${UUID.randomUUID()}")
+        val other = DeviceSupport.folder("Unrelated")
+        val transfer = DeviceSupport.import(folder)
+        val work = UUID.randomUUID().toString()
+        app.store.assign(transfer, work)
+        ui.runOnIdle { model().disconnectFolder(folder) }
+        ui.waitUntil(20000) { !model().busy.value && app.store.folder(folder)?.pairingState == "disconnect_pending" }
+        assertEquals(DeviceSupport.token, app.store.token(folder))
+        assertFalse(app.store.updateOwned(transfer, work, TransferStatus.UPLOADED, delivery = "stale"))
+        app.store.pairingResult(folder, "ready", null)
+        assertEquals("disconnect_pending", app.store.folder(folder)!!.pairingState)
+        assertTrue(runCatching { app.store.removeFolder(folder) }.isFailure)
+        assertTrue(runCatching { app.store.automatic.enable(folder, "content://unused/tree/source", "Source", true, emptyList(), 0) }.isFailure)
+        assertTrue(runCatching { DeviceSupport.import(folder) }.isFailure)
+        app.uploads.recover()
+        assertEquals(TransferStatus.PAUSED, app.store.transfer(transfer)!!.status)
+        assertTrue(app.store.connectionOpen(other))
+        select(folder)
+        ui.onNodeWithContentDescription("Folder settings").performClick()
+        ui.onNodeWithText("Retry disconnect").assertIsDisplayed()
+        ui.onNodeWithTag("remove-folder").assertIsNotEnabled()
+    }
+
+    @Test fun legacyRemovalOnlyDeletesLocalRecordsAndRetainsFiles() {
+        val folder = DeviceSupport.folder()
+        val other = DeviceSupport.folder("Other")
+        val transfer = DeviceSupport.import(folder)
+        val staged = File(app.store.directory(transfer), "payload")
+        val bytes = staged.readBytes()
+        ui.runOnIdle { model().removeFolder(folder) {} }
+        ui.waitUntil(15000) { !model().busy.value && app.store.folder(folder) == null }
+        assertArrayEquals(bytes, staged.readBytes())
+        assertTrue(app.store.connectionOpen(other))
+        assertNull(app.store.transfer(transfer))
+    }
     private fun share(multiple: Boolean = false) {
         val uri = DeviceSupport.uri(8192, "Shared fixture.bin")
         val intent = Intent(if (multiple) Intent.ACTION_SEND_MULTIPLE else Intent.ACTION_SEND).apply {
@@ -77,6 +151,57 @@ class DeviceUiTest {
         ui.onNode(hasText("Add Folder") and hasAnyAncestor(hasTestTag("welcome"))).performClick()
         ui.onNodeWithText("Save").assertIsNotEnabled()
         ui.onNodeWithText("Cancel").performClick()
+    }
+    private fun scanResult(contents: String?, denied: Boolean = false) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.grantRuntimePermission(app.packageName, android.Manifest.permission.CAMERA)
+        val result = Intent().apply {
+            if (contents != null) {
+                putExtra(com.google.zxing.client.android.Intents.Scan.RESULT, contents)
+                putExtra(com.google.zxing.client.android.Intents.Scan.RESULT_FORMAT, "QR_CODE")
+            }
+            if (denied) putExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION, true)
+        }
+        val monitor = instrumentation.addMonitor(InvitationScannerActivity::class.java.name,
+            android.app.Instrumentation.ActivityResult(if (contents == null) Activity.RESULT_CANCELED else Activity.RESULT_OK, result), true)
+        try {
+            ui.onNodeWithTag("scan-invitation").performScrollTo().performClick()
+            ui.waitForIdle()
+            assertEquals(1, monitor.hits)
+        } finally { instrumentation.removeMonitor(monitor) }
+    }
+    @Test fun qrScanFillsInvitationWithoutSavingOrEnablingAuto() {
+        ui.onNode(hasText("Add Folder") and hasAnyAncestor(hasTestTag("welcome"))).performClick()
+        val code = "00000000-0000-4000-8000-000000000001." + "ab".repeat(32)
+        val text = org.json.JSONObject().put("kind", "mirelay-pairing").put("version", 1)
+            .put("server_url", "https://example.com").put("pairing_code", code)
+            .put("expires_at_unix", System.currentTimeMillis()/1000+600).toString()
+        scanResult(text)
+        ui.onNodeWithText("Server URL").assertTextContains("https://example.com")
+        ui.onNodeWithTag("pair-folder").assertIsOn()
+        ui.onNodeWithTag("setup-http").performScrollTo().assertIsOff()
+        assertTrue(app.store.folders.value.isEmpty())
+        assertTrue(app.store.automatic.sources.value.isEmpty())
+        ui.onNodeWithText("Cancel").performClick()
+        assertTrue(app.store.folders.value.isEmpty())
+    }
+    @Test fun qrInvalidResultAndCancellationPreserveManualInput() {
+        ui.onNode(hasText("Add Folder") and hasAnyAncestor(hasTestTag("welcome"))).performClick()
+        ui.onNodeWithText("Server URL").performTextInput("https://manual.example.com")
+        scanResult("https://not-a-mirelay-invitation.example")
+        ui.onNodeWithTag("scan-error").performScrollTo().assertTextContains("Not a valid MiRelay invitation", substring=true)
+        ui.onNodeWithText("Server URL").assertTextContains("https://manual.example.com")
+        scanResult(null)
+        ui.onNodeWithTag("scan-error").assertDoesNotExist()
+        ui.onNodeWithText("Server URL").assertTextContains("https://manual.example.com")
+        assertTrue(app.store.folders.value.isEmpty())
+    }
+    @Test fun qrMissingPermissionResultKeepsManualPairingAvailable() {
+        ui.onNode(hasText("Add Folder") and hasAnyAncestor(hasTestTag("welcome"))).performClick()
+        scanResult(null, denied=true)
+        ui.onNodeWithTag("scan-error").performScrollTo().assertTextContains("Camera permission is required", substring=true)
+        ui.onNodeWithText("Server URL").performScrollTo().performTextInput("https://manual.example.com")
+        assertTrue(app.store.folders.value.isEmpty())
     }
     @Test fun folderHeaderUsesOriginalWordmarkAndMenuStillOpensDrawer() {
         select(DeviceSupport.folder())
@@ -294,13 +419,65 @@ class DeviceUiTest {
                 var changed = false
                 try { app.album.load(photos.getValue("changing"), app.store, 256) } catch (_: IllegalStateException) { changed = true }
                 assertTrue(changed)
-                val start = android.os.SystemClock.elapsedRealtime()
-                try { kotlinx.coroutines.withTimeout(150) { app.album.load(photos.getValue("slow"), app.store, 256) }; fail("Read must cancel") }
-                catch (_: kotlinx.coroutines.TimeoutCancellationException) { }
-                assertTrue("Cancellation must not wait for the 15-second provider deadline", android.os.SystemClock.elapsedRealtime() - start < 3000)
+                repeat(5) {
+                    val start = android.os.SystemClock.elapsedRealtime()
+                    try { kotlinx.coroutines.withTimeout(150) { app.album.load(photos.getValue("slow"), app.store, 256) }; fail("Read must cancel") }
+                    catch (_: kotlinx.coroutines.TimeoutCancellationException) { }
+                    assertTrue("Cancellation must not wait for the 15-second provider deadline", android.os.SystemClock.elapsedRealtime() - start < 3000)
+                }
             }
             assertTrue(File(app.cacheDir, "album-scratch").listFiles().orEmpty().isEmpty())
             assertTrue(app.store.transfers.value.isEmpty())
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+    @Test fun albumBackgroundCancelsReadsAndForegroundRefreshesWithoutUploads() {
+        try {
+            AutoFixture.reset()
+            repeat(20) { index -> AutoFixture.put("slow-$index", 1024 * 1024, extra = {
+                putString("name", "Slow-$index.jpg"); putInt("delayMillis", 500)
+            }) }
+            val folder = DeviceSupport.folder("Background album QA")
+            app.auto.enable(folder, AutoFixture.tree, true, startImmediately = false)
+            app.store.setFolderKind(folder, FolderKind.PHOTOS)
+            select(folder)
+            DeviceSupport.await(10000) { AutoFixture.opens() > 0 }
+            device.pressHome()
+            DeviceSupport.await(5000) {
+                !activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) &&
+                    File(app.cacheDir, "album-scratch").listFiles().orEmpty().isEmpty()
+            }
+            val opens = AutoFixture.opens()
+            android.os.SystemClock.sleep(1000)
+            assertEquals("Hidden album must not open more sources", opens, AutoFixture.opens())
+            repeat(20) { index -> AutoFixture.control("remove", Bundle().apply { putString("id", "slow-$index") }) }
+            val bytes = app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { it.readBytes() }
+            AutoFixture.put("resumed", bytes.size.toLong(), extra = { putString("name", "Resumed.png"); putByteArray("bytes", bytes) })
+            app.startActivity(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            ui.waitUntil(15000) { ui.onAllNodesWithTag("photo-image-resumed", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+            ui.onNodeWithTag("photo-card-slow-0").assertDoesNotExist()
+            assertTrue(app.store.transfers.value.isEmpty())
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+    @Test fun albumConcurrentRequestsReadSourceOnceAndRefreshInvalidatesCache() {
+        try {
+            AutoFixture.reset()
+            app.contentResolver.takePersistableUriPermission(AutoFixture.tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val bytes = app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { it.readBytes() }
+            AutoFixture.put("shared", bytes.size.toLong(), extra = { putString("name", "Shared.png"); putByteArray("bytes", bytes) })
+            kotlinx.coroutines.runBlocking {
+                val photo = app.album.scan(AutoFixture.tree.toString()).single()
+                val results = kotlinx.coroutines.coroutineScope {
+                    List(20) { async { app.album.load(photo, app.store, 256) } }.map { it.await() }
+                }
+                assertNotNull(results.first()); assertTrue(results.all { it === results.first() })
+                assertEquals(1, AutoFixture.opens())
+                val refreshed = app.album.scan(AutoFixture.tree.toString()).single()
+                assertNotNull(app.album.load(refreshed, app.store, 256))
+                assertEquals(2, AutoFixture.opens())
+                AutoFixture.control("revoke")
+                try { app.album.load(refreshed, app.store, 256); fail("Cached image must require permission") }
+                catch (_: SecurityException) { }
+            }
         } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
     }
     @Test fun drawerSurvivesRepeatedEmptyAndRepopulatedLists() {
@@ -505,8 +682,14 @@ class DeviceUiTest {
         ui.onNodeWithText("Send 1 file(s)").assertIsDisplayed()
         val before = activity
         ui.runOnIdle { before.recreate() }
-        ui.waitUntil(15000) { activity !== before }
+        // onActivityCreated updates our reference before STARTED collection and
+        // the dialog's first frame. Wait for the real visible result, not merely
+        // a newly allocated Activity, without relaxing pending-state assertions.
+        ui.waitUntil(15000) { activity !== before &&
+            activity.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
+            ui.onNodeWithText("Send 1 file(s)").isDisplayed() }
         ui.onNodeWithText("Send 1 file(s)").assertIsDisplayed()
+        ui.runOnIdle { assertEquals(1, model().pending.value.size) }
         assertEquals(1, app.store.folders.value.size); assertTrue(app.store.transfers.value.isEmpty())
     }
     @Test fun queuePauseResumeAndStaleOwnerDoNotDuplicateUpload() {

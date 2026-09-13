@@ -37,6 +37,7 @@ async fn authorize(
     role: Option<&str>,
 ) -> Result<String, ApiError> {
     let info = identity(state, id, supplied_hash(headers)?).await?;
+    super::folders::require_connected(&info)?;
     check_protocol(headers)?;
     if role.is_some_and(|role| role != info.role) {
         return Err(ApiError::new(

@@ -21,10 +21,26 @@ pub const MAX_HTTP_RETRY_ATTEMPTS: u32 = 10;
 pub const MAX_HTTP_RETRY_DELAY_MILLISECONDS: u64 = 60_000;
 const MAX_CONFIG_SIZE_BYTES: u64 = 1024 * 1024;
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionState {
+    #[default]
+    Connected,
+    DisconnectPending,
+    Disconnected,
+}
+impl ConnectionState {
+    pub fn is_connected(&self) -> bool {
+        *self == Self::Connected
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "ConnectionState::is_connected")]
+    pub connection_state: ConnectionState,
     /// Explicit opt-in. Older readers reject this unknown field rather than
     /// accidentally running the delivery-only pipeline in a managed directory.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -90,6 +106,13 @@ pub struct InitOverrides {
 }
 
 impl Config {
+    pub fn require_connected(&self) -> Result<()> {
+        anyhow::ensure!(
+            self.connection_state.is_connected(),
+            "This Folder is disconnected or awaiting disconnection. Retry disconnect in Folder settings; create a new Folder to reconnect."
+        );
+        Ok(())
+    }
     pub fn defaults(overrides: InitOverrides) -> Result<Self> {
         let data_dir = match overrides.data_dir {
             Some(path) => absolute_path(path)?,
@@ -106,6 +129,7 @@ impl Config {
 
         Ok(Self {
             schema_version: CONFIG_SCHEMA_VERSION,
+            connection_state: ConnectionState::Connected,
             directory_sync: false,
             device_id: Uuid::new_v4().to_string(),
             server: ServerConfig::Filesystem { inbox_dir },

@@ -17,7 +17,7 @@ class AutoStore(private val relay: RelayStore) {
         internal const val STABLE_MILLIS = 10_000L
         internal const val MAX_ENTRIES = 5_000
         internal const val MAX_HISTORY = 50_000
-        internal const val ALLOWED_TRANSFER = "(auto_revision IS NULL OR EXISTS (SELECT 1 FROM auto_sources a WHERE a.folder_id = transfers.folder_id AND a.revision = transfers.auto_revision AND a.enabled = 1))"
+        internal const val ALLOWED_TRANSFER = "EXISTS (SELECT 1 FROM folders f WHERE f.id=transfers.folder_id AND f.pairing_state NOT IN ('disconnect_pending','disconnected')) AND (auto_revision IS NULL OR EXISTS (SELECT 1 FROM auto_sources a WHERE a.folder_id = transfers.folder_id AND a.revision = transfers.auto_revision AND a.enabled = 1))"
         internal fun createTables(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE auto_sources (folder_id TEXT PRIMARY KEY REFERENCES folders(id) ON DELETE CASCADE, tree_uri TEXT NOT NULL, name TEXT NOT NULL, revision TEXT NOT NULL, enabled INTEGER NOT NULL, unmetered INTEGER NOT NULL, last_scan INTEGER, error TEXT, prepared INTEGER NOT NULL DEFAULT 0)")
             db.execSQL("CREATE TABLE auto_files (folder_id TEXT NOT NULL REFERENCES auto_sources(folder_id) ON DELETE CASCADE, document_id TEXT NOT NULL, fingerprint TEXT NOT NULL, stable_since INTEGER NOT NULL, state TEXT NOT NULL, transfer_id TEXT, error TEXT, PRIMARY KEY(folder_id, document_id))")
@@ -36,9 +36,9 @@ class AutoStore(private val relay: RelayStore) {
         return sources.value.find { it.folderId == folderId }
     }
     internal fun active(folder: String, revision: String): Boolean = db.rawQuery(
-        "SELECT 1 FROM auto_sources WHERE folder_id=? AND revision=? AND enabled=1", arrayOf(folder, revision)
+        "SELECT 1 FROM auto_sources WHERE folder_id=? AND revision=? AND enabled=1 AND EXISTS (SELECT 1 FROM folders f WHERE f.id=auto_sources.folder_id AND f.pairing_state NOT IN ('disconnect_pending','disconnected'))", arrayOf(folder, revision)
     ).use { it.moveToFirst() }
-    internal fun permits(transfer: Transfer) = transfer.autoRevision?.let { active(transfer.folderId, it) } ?: true
+    internal fun permits(transfer: Transfer) = relay.connectionOpen(transfer.folderId) && (transfer.autoRevision?.let { active(transfer.folderId, it) } ?: true)
 
     /** Baseline and enabling commit together. Failure never leaves a partially enabled source. */
     internal fun enable(folder: String, tree: String, name: String, unmetered: Boolean, files: List<SourceFile>, now: Long,
@@ -46,6 +46,7 @@ class AutoStore(private val relay: RelayStore) {
         require(files.size <= MAX_ENTRIES && files.map { it.documentId }.distinct().size == files.size)
         val revision = UUID.randomUUID().toString()
         transaction {
+            relay.requireConnectionOpen(folder)
             require(source(folder)?.directorySync != true) { "This Folder is initialized for directory sync. Resume it without resetting its baseline." }
             check(!db.rawQuery("SELECT 1 FROM auto_sources WHERE folder_id=? AND enabled=1", arrayOf(folder)).use { it.moveToFirst() }) { "Pause Auto before changing its source." }
             db.delete("auto_files", "folder_id=?", arrayOf(folder))
@@ -65,6 +66,7 @@ class AutoStore(private val relay: RelayStore) {
     }
 
     internal fun startPrepared(folder: String, unmetered: Boolean): AutoSource {
+        relay.requireConnectionOpen(folder)
         check(db.update("auto_sources", ContentValues().apply { put("enabled", 1); put("prepared", 0); put("unmetered", if (unmetered) 1 else 0) },
             "folder_id=? AND enabled=0 AND prepared=1", arrayOf(folder)) == 1) { "Source is no longer prepared." }
         relay.refresh()
@@ -82,12 +84,13 @@ class AutoStore(private val relay: RelayStore) {
     }
 
     internal fun makeManual(id: String) {
+        relay.requireConnectionOpen(requireNotNull(relay.transfer(id)).folderId)
         if (relay.transfer(id)?.relativePath != null) {
             require(relay.transfer(id)?.let(::permits) == true) { "Resume directory sync before retrying this file." }
             return
         }
         db.update("transfers", ContentValues().apply { putNull("auto_revision"); put("auto_unmetered", 0) },
-            "id=? AND status IN (?,?)", arrayOf(id, TransferStatus.PAUSED.name, TransferStatus.FAILED.name))
+            "id=? AND status IN (?,?) AND EXISTS (SELECT 1 FROM folders f WHERE f.id=transfers.folder_id AND f.pairing_state NOT IN ('disconnect_pending','disconnected'))", arrayOf(id, TransferStatus.PAUSED.name, TransferStatus.FAILED.name))
     }
 
     /** Only identities absent from the complete baseline can become candidates. */

@@ -28,6 +28,7 @@ class DirectorySyncStore(private val relay: RelayStore) {
         if (!it.moveToFirst()) null else JSONObject(it.getString(3)).let { diff -> DirectoryPreview(it.getString(0),it.getString(1),it.getString(2),diff.getInt("identical"),diff.strings("missing"),diff.strings("different"),diff.getInt("destination_only"),FileFilter.fromKey(it.getString(4)),skippedFromJson(it.getString(5))) }
     }
     internal fun requirePreviewAllowed(folder: String, tree: String) {
+        relay.requireConnectionOpen(folder)
         val source = relay.automatic.source(folder)
         require(source?.enabled != true) { "Pause Auto before previewing changes." }
         require(source?.directorySync != true || source.treeUri == tree) { "An initialized directory cannot be remapped. Choose its original source." }
@@ -94,6 +95,7 @@ class DirectorySyncStore(private val relay: RelayStore) {
     }
     internal fun resume(folder: String, tree: String, unmetered: Boolean): AutoSource {
         transaction {
+            relay.requireConnectionOpen(folder)
             val source = requireNotNull(relay.automatic.source(folder))
             require(source.directorySync && !source.enabled && source.treeUri == tree) { "Resume the initialized directory. Use a new Folder to change its source." }
             val revision = UUID.randomUUID().toString()

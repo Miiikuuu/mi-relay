@@ -33,14 +33,24 @@ fn main() -> Result<()> {
     ensure!(
         directory
             .as_deref()
-            .is_none_or(|value| value == "--directory"),
-        "expected optional --directory"
+            .is_none_or(|value| value == "--directory"
+                || value == "--album"
+                || value == "--album-stress"),
+        "expected optional --directory, --album or --album-stress"
     );
     ensure!(args.next().is_none(), "unexpected fixture argument");
-    prepare(Path::new(&root), directory.is_some())
+    prepare(
+        Path::new(&root),
+        directory.as_deref() == Some(std::ffi::OsStr::new("--directory")),
+        match directory.as_deref().and_then(|arg| arg.to_str()) {
+            Some("--album") => 120,
+            Some("--album-stress") => 600,
+            _ => 0,
+        },
+    )
 }
 
-fn prepare(root: &Path, directory: bool) -> Result<()> {
+fn prepare(root: &Path, directory: bool, album: usize) -> Result<()> {
     create_dir_all_durable(root)?;
     let root = root.canonicalize()?;
     // Serialize initializers; never reset an existing workspace or partial seed.
@@ -94,12 +104,67 @@ fn prepare(root: &Path, directory: bool) -> Result<()> {
     if directory {
         seed_directory(&root, &mut registry)?;
     }
+    if album > 0 {
+        let config = Config::load(&root.join("folders/illustrations/config.toml"))?;
+        seed_album(&config, &root.join("folders/illustrations"), album)?;
+        registry.select("illustrations")?;
+    }
     BridgeRegistryStore::new(root.join("empty.toml")).update(|_| Ok(()))?;
     registry_store.update(|current| {
         *current = registry;
         Ok(())
     })?;
     println!("Created local-only frontend workspace: {}", root.display());
+    Ok(())
+}
+
+fn seed_album(config: &Config, root: &Path, count: usize) -> Result<()> {
+    use gtk::gdk_pixbuf::{Colorspace, Pixbuf};
+    let ServerConfig::Filesystem { inbox_dir } = &config.server else {
+        unreachable!()
+    };
+    let source = FilesystemSource::new(inbox_dir.clone());
+    // Deterministic synthetic gradients, not imported artwork or user photos.
+    // Different aspect ratios exercise crop/fit while the original brand sample
+    // remains untouched. Use a new workspace; this never resets an existing one.
+    let palette = [
+        [95u8, 129, 142],
+        [155, 113, 89],
+        [87, 118, 104],
+        [145, 126, 159],
+        [186, 157, 103],
+        [111, 127, 167],
+    ];
+    for i in 0..count {
+        let width = if i % 3 == 0 { 480 } else { 640 };
+        let height = if i % 3 == 0 { 640 } else { 480 };
+        let mut pixels = Vec::with_capacity(width * height * 3);
+        let base = palette[i % palette.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let light = ((x + y + i * 31) % (width + height)) as f64 / (width + height) as f64;
+                for channel in base {
+                    pixels.push((f64::from(channel) * (0.60 + light * 0.65)).min(255.0) as u8);
+                }
+            }
+        }
+        let image = Pixbuf::from_bytes(
+            &gtk::glib::Bytes::from_owned(pixels),
+            Colorspace::Rgb,
+            false,
+            8,
+            width as i32,
+            height as i32,
+            (width * 3) as i32,
+        );
+        let path = root.join("samples").join(format!("Study {:03}.png", i + 1));
+        atomic_write(&path, &image.save_to_bufferv("png", &[])?)?;
+        source.enqueue(&path, config.limits.max_file_size_bytes)?;
+    }
+    ensure!(
+        sync_once(config, &source)?.failures.is_empty(),
+        "album fixture receive failed"
+    );
     Ok(())
 }
 
@@ -284,7 +349,7 @@ mod tests {
     #[test]
     fn fixtures_are_isolated_valid_and_reusable() -> Result<()> {
         let root = tempfile::tempdir()?;
-        prepare(root.path(), false)?;
+        prepare(root.path(), false, 0)?;
         let registry_path = root.path().join("folders.toml");
         let store = BridgeRegistryStore::new(registry_path.clone());
         let registry = store.load()?;
@@ -337,7 +402,7 @@ mod tests {
         let before = fs::read(&registry_path)?;
         let state_path = root.path().join("folders/documents/state.json");
         let state_before = fs::read(&state_path)?;
-        prepare(root.path(), false)?;
+        prepare(root.path(), false, 0)?;
         assert_eq!(before, fs::read(registry_path)?);
         assert_eq!(state_before, fs::read(state_path)?);
         assert!(
@@ -350,12 +415,47 @@ mod tests {
     }
 
     #[test]
+    fn album_fixture_selects_photos_and_preserves_existing_workspace() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        prepare(root.path(), false, 2)?;
+        let path = root.path().join("folders.toml");
+        let registry = BridgeRegistryStore::new(path.clone()).load()?;
+        assert_eq!(
+            registry.selected_bridge_id.as_deref(),
+            Some("illustrations")
+        );
+        let folder = registry
+            .bridges
+            .iter()
+            .find(|folder| folder.id == "illustrations")
+            .unwrap();
+        assert_eq!(folder.kind, mirelay::bridge_registry::FolderKind::Photos);
+        assert!(!folder.auto_receive);
+        let config = Config::load(&folder.config_path)?;
+        let state = StateStore::new(config.storage.state_file.clone()).load()?;
+        assert_eq!(state.deliveries.len(), 4);
+        for record in state.deliveries.values() {
+            assert_eq!(
+                inspect_file(&record.stored_path, config.limits.max_file_size_bytes)?.sha256,
+                record.sha256
+            );
+        }
+        let before = (fs::read(&path)?, fs::read(&config.storage.state_file)?);
+        prepare(root.path(), false, 600)?;
+        assert_eq!(
+            before,
+            (fs::read(path)?, fs::read(&config.storage.state_file)?)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn partial_or_unrelated_workspace_is_not_overwritten() -> Result<()> {
         let root = tempfile::tempdir()?;
         let existing = root.path().join("keep.txt");
         atomic_write(&existing, b"keep me")?;
         assert!(
-            prepare(root.path(), false)
+            prepare(root.path(), false, 0)
                 .unwrap_err()
                 .to_string()
                 .contains("refusing to overwrite")

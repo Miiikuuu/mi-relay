@@ -18,7 +18,7 @@ consented directory-sync filter. It does not deploy or change the relay server.
 - General keeps the transfer list. Android's [album mode](android-album.md) uses
   a compact 3–6-column grid, full-screen paging/zoom and a frosted header. Transfer
   activity, including non-image attachments and retry actions, lives in a separate
-  panel. Linux retains its gallery/list presentation described below.
+  panel. Linux has a [virtualized album and local viewer](linux-album.md).
 - Android Photos browses the already configured SAF source read-only, including
   images without transfer records. Without a configured source it falls back to
   local image transfer records. It is not a device-wide media-library scanner.
@@ -91,7 +91,9 @@ There is no change to tus, SHA-256, delivery receipts or conflict preservation.
 
 ## Compatibility and remaining work
 
-Android SQLite migrates versions 1–4 to **5**, with General / All files defaults.
+Android SQLite added category defaults in schema **5**; the current schema **6**
+also prevents unsafe downgrades past the Folder-disconnection state barrier.
+Migration from versions 1–4 retains the General / All files defaults.
 Encrypted tokens, existing Auto consent, pairing, transfer rows and directory
 history are retained. Unknown presentation keys fall back to General; unknown
 filter keys fail closed. An old Android binary cannot open the upgraded database:
@@ -114,13 +116,17 @@ General is omitted on serialization, preserving the old format. Old desktop
 versions reject registries containing Photos rather than interpreting an unknown
 field; switch all Folders to General before a desktop downgrade.
 
-Photos keeps pending, failed and non-image records in the list above a responsive
-image grid. Existing filename/type/status filters and sort directions still apply
-to the full transfer history, with active matches first. At most 100 image tiles
-are rendered; additional matching records revealed by Show More remain accessible
-as list rows. This is not a full browser of untracked or initialization-only files.
+Photos gives the image grid its own expanding, virtualized scroll area. Folder
+properties move into the information popover; pending, failed and non-image
+records remain accessible in a compact Transfer activity expander. Existing
+filename/type/status filters and sort directions still apply to the full transfer
+history, with active matches first. Show More retains pagination, and additional
+completed images remain grid tiles rather than becoming list rows after 100.
+This is not a full browser of untracked or initialization-only files.
 
-Tiles open a read-only local preview. This initial Linux decoder explicitly permits
+Tiles open a dark, read-only viewer with previous/next navigation, keyboard
+shortcuts, zoom, pan and a fullscreen action. Navigation follows a snapshot of the
+currently loaded, filtered photos. This initial Linux decoder explicitly permits
 PNG and JPEG only; other image extensions still get a tile and an unavailable
 placeholder, not a failed transfer. No external image viewer or URL is launched.
 Preview reads refuse symlinks (including parent directories), non-regular files,
@@ -129,13 +135,17 @@ corrupt and unsupported files leave the original and transfer status unchanged.
 
 A single process-wide worker and a 128-request bounded queue keep reading, hashing
 and decoding off GTK. Destroyed preview requests are cancelled before decoding;
-an in-progress decode is not forcibly interrupted. Saturation shows a placeholder.
+an in-progress decode is not forcibly interrupted. Unmapped cells do not poll or
+start decodes; visible requests retry queue saturation until admitted or unmapped.
 The input cap is 32 MiB and the declared dimension cap is 16 million pixels.
 PNG/JPEG headers are checked before invoking the native decoder, as some system
 backends decode before emitting the size callback; the callback checks again.
 Output edges are at most 256 pixels for tiles and 1024 for modal previews.
-Unchanged gallery entries retain their widgets during transfer activity; there is
-no disk cache or thumbnail written to any sync directory. Decoder scaling follows
+Unchanged gallery entries retain their objects during transfer activity; recycled
+cells reuse their widgets. A 24 MiB process-local LRU pixel cache rechecks safe
+paths, size, inode and nanosecond modification/change times before reuse. Visible
+images can retain shared pixels beyond cache eviction, so this is not a total RSS
+limit. There is no disk cache or thumbnail written to any sync directory. Decoder scaling follows
 [GdkPixbuf's size-prepared API](https://docs.gtk.org/gdk-pixbuf/class.PixbufLoader.html).
 These are bounded-input safeguards, not a codec sandbox or a peak-RSS guarantee;
 native decoders can allocate intermediate buffers. No media conversion, deletion,

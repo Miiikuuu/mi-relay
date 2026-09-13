@@ -14,7 +14,7 @@ fn write(root: &Path, path: &str, bytes: &[u8]) {
     fs::write(file, bytes).unwrap();
 }
 
-async fn scenario(test: impl FnOnce(&Path, DesktopPaths, &str, &str) + Send + 'static) {
+pub(super) async fn scenario(test: impl FnOnce(&Path, DesktopPaths, &str, &str) + Send + 'static) {
     let root = tempfile::tempdir().unwrap();
     let store = ServerStore::new(root.path().join("server"), 100 * 1024 * 1024).unwrap();
     store.initialize().unwrap();
@@ -47,7 +47,12 @@ async fn scenario(test: impl FnOnce(&Path, DesktopPaths, &str, &str) + Send + 's
     result.unwrap();
 }
 
-fn setup(root: &Path, paths: &DesktopPaths, url: &str, token: &str) -> (String, Config, PathBuf) {
+pub(super) fn setup(
+    root: &Path,
+    paths: &DesktopPaths,
+    url: &str,
+    token: &str,
+) -> (String, Config, PathBuf) {
     let destination = root.join("destination");
     fs::create_dir_all(&destination).unwrap();
     let preview = directory_panel::prepare(

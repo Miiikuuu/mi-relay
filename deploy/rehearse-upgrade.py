@@ -39,17 +39,29 @@ def database_snapshot(path):
         if db.execute("PRAGMA foreign_key_check").fetchall():
             raise RuntimeError("Database foreign-key check failed")
         tables = {}
+        columns = {}
         for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"):
             quoted = '"' + name.replace('"', '""') + '"'
-            tables[name] = db.execute(f"SELECT * FROM {quoted} ORDER BY rowid").fetchall()
-        return {"schema": db.execute("PRAGMA user_version").fetchone()[0], "tables": tables}
+            cursor = db.execute(f"SELECT * FROM {quoted} ORDER BY rowid")
+            columns[name] = [field[0] for field in cursor.description]
+            tables[name] = cursor.fetchall()
+        return {"schema": db.execute("PRAGMA user_version").fetchone()[0], "tables": tables,
+                "columns": columns}
 
 
 def require_retained(before, after, expected_schema):
     if after["schema"] != expected_schema:
         raise RuntimeError("Unexpected migrated database schema")
     for name, rows in before["tables"].items():
-        if after["tables"].get(name) != rows:
+        old_columns = before["columns"][name]
+        new_columns = after["columns"].get(name, [])
+        allowed = ["disconnected"] if name == "folders" and before["schema"] < 4 <= expected_schema else []
+        if new_columns != old_columns + allowed:
+            raise RuntimeError("Unexpected migrated columns")
+        current = after["tables"][name]
+        if allowed and any(row[-1] != 0 for row in current):
+            raise RuntimeError("Existing Folder was implicitly disconnected")
+        if [row[:len(old_columns)] for row in current] != rows:
             raise RuntimeError("Pre-upgrade database records changed")
 
 
@@ -67,8 +79,8 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--old-binary", required=True)
     parser.add_argument("--new-binary", required=True)
-    parser.add_argument("--old-schema", type=int, choices=(1, 2), default=2)
-    parser.add_argument("--new-schema", type=int, choices=(2, 3), default=3)
+    parser.add_argument("--old-schema", type=int, choices=(1, 2, 3), default=3)
+    parser.add_argument("--new-schema", type=int, choices=(2, 3, 4), default=4)
     parser.add_argument("--marker", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.new_schema <= args.old_schema:
@@ -321,6 +333,22 @@ def inside(args):
                         headers={"If-Match": '"sha256:' + sha + '"'})
                     assert retained == payload, "Directory ACK must not delete another queue's identical content"
                 print("PASS: directory inventory, Unicode path, tus restart/resume, exact bytes, legacy isolation and bound receipts", flush=True)
+
+            if args.new_schema >= 4:
+                for token in (sender, receiver):
+                    _, body = request("POST", scoped + "/api/v1/pairing/disconnect", token=token, body={})
+                    assert json.loads(body)["state"] == "disconnected"
+                    for endpoint in ("/api/v1/directory", "/api/v1/deliveries"):
+                        _, body = request("GET", scoped + endpoint, token=token, expected=410)
+                        assert json.loads(body)["code"] == "folder_disconnected"
+                control(["systemctl", "stop", "mirelay-server.service"])
+                control(["systemctl", "start", "mirelay-server.service"])
+                setup.local_health()
+                _, body = request("GET", scoped + "/api/v1/handshake", token=receiver)
+                assert json.loads(body)["state"] == "disconnected"
+                if old_pair:
+                    request("GET", old_pair[0] + "/api/v1/directory", token=old_pair[1])
+                print("PASS: disconnection is idempotent, survives restart, blocks both roles and isolates other Folders", flush=True)
 
             # A failed post-start health check must not rewind an already-upgraded DB.
             after_env = setup.ENV.read_bytes()

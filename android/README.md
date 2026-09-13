@@ -1,11 +1,24 @@
 # MiRelay for Android
 
+Folder settings include **Disconnect Folder** and a separate **Remove Folder**
+confirmation. See [safe disconnection](../docs/folder-disconnection.md) for retry,
+file retention, legacy connections, and the required relay upgrade.
+
 Native Android sender MVP: Kotlin/Jetpack Compose for the platform UI and background scheduling, with the existing Rust tus sender shared through JNI. English UI, compact monochrome controls, and multiple **Folders** representing Linux destinations. No WebView, advertising, analytics, or third-party cloud service.
+
+**Add Folder → Scan QR code** reads the Linux invitation locally and fills in
+the server URL and pairing code. Camera permission is requested only on demand;
+manual entry remains available. Scanning does not save, claim, or enable Auto.
+See [QR pairing](../docs/qr-pairing.md) for confirmation and privacy boundaries.
 
 Development builds include [General / Photos categories](../docs/folder-categories.md),
 an [album browser](../docs/android-album.md) with a frosted top bar, full-screen
 paging/zoom, and an explicitly previewed directory-sync filter. Categories
 are local display preferences; they never silently change existing transfer consent.
+Album reads stop below the visible STARTED lifecycle and refresh on return.
+Bounded tile/viewer caches have separate budgets, coalesce identical requests,
+and avoid creating provider deadline threads on cache hits. Background sync
+remains independent; original safety checks and the frosted header are retained.
 
 Completed image uploads now keep bounded, derived previews independently of
 upload staging. See the [physical regression report](../docs/phone-categories-2026-09-11.md)

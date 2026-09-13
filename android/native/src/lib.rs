@@ -80,6 +80,7 @@ pub extern "system" fn Java_io_mirelay_android_NativeBridge_pairing(
                 )
                 .map(Some),
             Some("handshake") => client.handshake().map(Some),
+            Some("disconnect") => client.disconnect().map(Some),
             Some("legacy_check") => client.verify_receiver(),
             _ => return Err("Unsupported setup operation.".into()),
         }

@@ -106,7 +106,7 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                     title = { BrandWordmark(Modifier.width(104.dp).height(65.dp).testTag("brand-wordmark")) },
                     expandedHeight = 72.dp,
                     actions = {
-                        if (folder != null) TextButton(enabled = !busy, onClick = { model.openAuto(folder.id) }) {
+                        if (folder != null) TextButton(enabled = !busy && !folder.connectionClosed, onClick = { model.openAuto(folder.id) }) {
                             Text(if (autoSources.any { it.folderId == folder.id && it.enabled }) "Auto on" else "Auto")
                         }
                         if (folder != null) IconButton(enabled = !busy, onClick = { editing = folder; editor = true }) { RelayIcon("settings", "Folder settings") }
@@ -144,19 +144,19 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                                 item("heading") {
                                     if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                                         FolderHeading(folder, Modifier.weight(1f), compact = true) { model.setFolderKind(folder.id, it) }
-                                        BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
+                                        BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy && !folder.connectionClosed) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
                                     } else Column {
                                         FolderHeading(folder) { model.setFolderKind(folder.id, it) }
                                         Spacer(Modifier.height(20.dp))
-                                        BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
+                                        BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy && !folder.connectionClosed) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
                                     }
                                     if (folder.pairingState != "legacy") {
                                         Spacer(Modifier.height(12.dp))
-                                        Text(if (folder.pairingState == "ready") "Paired · ready to send" else "Awaiting pairing · sending is blocked",
+                                        Text(folder.connectionLabel,
                                             style = MaterialTheme.typography.bodySmall)
                                         folder.verification?.let { Text("Verification: $it", fontWeight = FontWeight.Medium) }
-                                        if (folder.pairingState != "ready") Text("Compare this code on Linux and confirm there, then check pairing here.", style = MaterialTheme.typography.bodySmall)
-                                        TextButton(enabled = !busy, onClick = { model.checkPairing(folder.id) }) { Text("Check pairing") }
+                                        if (folder.pairingState != "ready" && !folder.connectionClosed) Text("Compare this code on Linux and confirm there, then check pairing here.", style = MaterialTheme.typography.bodySmall)
+                                        TextButton(enabled = !busy && !folder.connectionClosed, onClick = { model.checkPairing(folder.id) }) { Text("Check pairing") }
                                     }
                                 }
                                 item("transfers-heading") {
@@ -171,13 +171,13 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                                     }
                                 }
                                 items(files, key = { "transfer:${it.id}" }) { transfer ->
-                                    TransferRow(transfer, busy, { model.retry(transfer.id) }, { model.pause(transfer.id) })
+                                    TransferRow(transfer, busy || folder.connectionClosed, { model.retry(transfer.id) }, { model.pause(transfer.id) })
                                 }
                                 item("receipt-note") {
                                     Text(if(directoryMode) "Waiting for Linux means uploaded, not yet received. Receipts refresh with directory checks; conflicts keep both copies on Linux." else "Uploads are confirmed by your server. Linux delivery receipts are not available for delivery-only files.",
                                         Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if(directoryMode) TextButton(enabled = !busy, onClick = { model.refreshReceipts(folder.id) }) { Text("Refresh receipts") }
+                                    if(directoryMode) TextButton(enabled = !busy && !folder.connectionClosed, onClick = { model.refreshReceipts(folder.id) }) { Text("Refresh receipts") }
                                 }
                             }
                         }
@@ -185,8 +185,10 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                 }
             }
         }
-        if (editor) FolderEditor(editing, busy, error, creationTree,
+        if (editor) FolderEditor(editing?.let { old -> folders.find { it.id == old.id } ?: old }, busy, error, creationTree,
             chooseDirectory = { chooseDirectory("new-folder") },
+            disconnect = { id -> model.disconnectFolder(id) },
+            remove = { id -> model.removeFolder(id) { editor = false; editing = null } },
             onDismiss = { if (!busy) { editor = false; model.creationTree.value = null } }) { name, url, token, insecure, code, history, kind ->
             model.saveFolder(editing, name, url, token, insecure, code, history, kind) { editor = false }
         }
@@ -206,13 +208,13 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                     Box {
                         TextButton(onClick = { destinationsOpen = true }) { RelayIcon("folder", null); Spacer(Modifier.width(8.dp)); Text(target.name) }
                         DropdownMenu(destinationsOpen, { destinationsOpen = false }) {
-                            folders.forEach { item -> DropdownMenuItem(text = { Text(item.name) }, onClick = { destination = item.id; destinationsOpen = false }) }
+                            folders.forEach { item -> DropdownMenuItem(text = { Text(item.name) }, enabled = !item.connectionClosed, onClick = { destination = item.id; destinationsOpen = false }) }
                         }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text("Files will be copied into MiRelay's private storage, then uploaded to ${target.server}. Originals stay unchanged.")
                 } },
-                confirmButton = { TextButton(enabled = !busy, onClick = { requestNotifications(); model.selected.value = target.id; model.send(target.id) }) { Text("Send") } },
+                confirmButton = { TextButton(enabled = !busy && !target.connectionClosed, onClick = { requestNotifications(); model.selected.value = target.id; model.send(target.id) }) { Text("Send") } },
                 dismissButton = { Row {
                     TextButton(enabled = !busy, onClick = { model.pending.value = emptyList() }) { Text("Cancel") }
                 } })
@@ -379,7 +381,9 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
 }
 
 @Composable private fun FolderEditor(folder: Folder?, busy: Boolean, failure: String?, tree: android.net.Uri?, chooseDirectory: () -> Unit,
+    disconnect: (String) -> Unit, remove: (String) -> Unit,
     onDismiss: () -> Unit, save: (String, String, String, Boolean, String, Boolean, FolderKind) -> Unit) {
+    var action by remember(folder?.id) { mutableStateOf<String?>(null) }
     var name by rememberSaveable(folder?.id) { mutableStateOf(folder?.name.orEmpty()) }
     var server by rememberSaveable(folder?.id) { mutableStateOf(folder?.server.orEmpty()) }
     // Credentials are intentionally not saved in Activity instance state.
@@ -387,15 +391,44 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     var insecure by rememberSaveable(folder?.id) { mutableStateOf(folder?.insecure ?: false) }
     var usePairing by rememberSaveable(folder?.id) { mutableStateOf(folder == null) }
     var pairingCode by remember(folder?.id) { mutableStateOf("") }
+    var scanFailure by remember { mutableStateOf<String?>(null) }
+    var scannedInvitation by remember { mutableStateOf<PairingInvitation?>(null) }
     var includeExisting by rememberSaveable(tree) { mutableStateOf(false) }
     var kindKey by rememberSaveable(folder?.id) { mutableStateOf((folder?.kind ?: FolderKind.GENERAL).key) }
+    if (folder != null && action != null) AlertDialog(
+        onDismissRequest = { if (!busy) action = null },
+        title = { Text(if (action == "disconnect") "Disconnect Folder?" else "Remove Folder?") },
+        text = { Text(if (action == "disconnect")
+            "Stop this Folder's local tasks and permanently revoke both devices' access to this relay Folder. Reconnecting requires a new Folder. Existing files stay in place; an already authorized request may finish."
+            else "Remove this Folder, its credential and local transfer history from MiRelay. Original, received and privately staged files are kept. This cannot be undone." +
+                if (!folder.scoped) " This is local removal only: the shared server token and the other device remain authorized." else "") },
+        confirmButton = { TextButton(enabled = !busy, onClick = {
+            val choice = action; action = null
+            if (choice == "disconnect") disconnect(folder.id) else remove(folder.id)
+        }) { Text(if (action == "disconnect") "Disconnect" else "Remove") } },
+        dismissButton = { TextButton(enabled = !busy, onClick = { action = null }) { Text("Cancel") } })
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (folder == null) "Add Folder" else "Folder settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (folder != null) {
+                    Text(folder.connectionLabel)
+                    if (folder.scoped && folder.pairingState != "disconnected") TextButton(enabled = !busy,
+                        onClick = { action = "disconnect" }, modifier = Modifier.testTag("disconnect-folder")) {
+                        Text(if (folder.pairingState == "disconnect_pending") "Retry disconnect" else "Disconnect Folder")
+                    }
+                    TextButton(enabled = !busy && (!folder.scoped || folder.pairingState == "disconnected"),
+                        onClick = { action = "remove" }, modifier = Modifier.testTag("remove-folder")) { Text(if (folder.scoped) "Remove Folder" else "Remove locally") }
+                }
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, enabled = !busy)
                 OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, placeholder = { Text("https://relay.example.com") },
                     singleLine = true, enabled = !busy && folder == null, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
                 if (folder == null) {
+                    ScanInvitationButton(enabled = !busy, accept = { invitation ->
+                        server = invitation.server; pairingCode = invitation.code; scannedInvitation = invitation
+                        token = ""; insecure = false; usePairing = true
+                    }, failure = { scanFailure = it })
+                    scanFailure?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("scan-error")) }
+                    if (scannedInvitation != null) Text("Invitation scanned. Review the server address and choose your local directory, then Save. Linux must still confirm the matching code.", style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !busy, onClick = chooseDirectory) { RelayIcon("folder", null); Spacer(Modifier.width(8.dp)); Text("Choose existing directory") }
                     tree?.let {
                         Text(android.provider.DocumentsContract.getTreeDocumentId(it), maxLines = 3, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
@@ -428,8 +461,13 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                 }
                 failure?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
-        }, confirmButton = { TextButton(enabled = !busy && name.isNotBlank() && server.isNotBlank() && (folder != null || if (usePairing) pairingCode.isNotBlank() else token.isNotBlank()),
-            onClick = { save(name, server, token, insecure, if (usePairing && folder == null) pairingCode else "", includeExisting,FolderKind.fromKey(kindKey)) }) { Text(if (busy) "Checking…" else "Save") } },
+        }, confirmButton = { TextButton(enabled = !busy && folder?.connectionClosed != true && name.isNotBlank() && server.isNotBlank() && (folder != null || if (usePairing) pairingCode.isNotBlank() else token.isNotBlank()),
+            onClick = {
+                val scanned = scannedInvitation
+                if (folder == null && usePairing && scanned != null && scanned.code == pairingCode && scanned.expires <= System.currentTimeMillis() / 1000) {
+                    scanFailure = "Invitation expired. Replace the invitation on Linux and scan again."
+                } else save(name, server, token, insecure, if (usePairing && folder == null) pairingCode else "", includeExisting,FolderKind.fromKey(kindKey))
+            }) { Text(if (busy) "Checking…" else "Save") } },
         dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") } })
 }
 
@@ -444,6 +482,7 @@ private fun fileSize(bytes: Long): String = when {
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
                 when (name) {
+                    "scan" -> { moveTo(8f,3f); lineTo(3f,3f); lineTo(3f,8f); moveTo(16f,3f); lineTo(21f,3f); lineTo(21f,8f); moveTo(3f,16f); lineTo(3f,21f); lineTo(8f,21f); moveTo(21f,16f); lineTo(21f,21f); lineTo(16f,21f); moveTo(7f,12f); lineTo(17f,12f) }
                     "back" -> { moveTo(14f, 5f); lineTo(7f, 12f); lineTo(14f, 19f) }
                     "next" -> { moveTo(10f, 5f); lineTo(17f, 12f); lineTo(10f, 19f) }
                     "more" -> { moveTo(5f, 12f); lineTo(5.01f, 12f); moveTo(12f, 12f); lineTo(12.01f, 12f); moveTo(19f, 12f); lineTo(19.01f, 12f) }

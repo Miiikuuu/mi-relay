@@ -28,6 +28,10 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     init { task { withContext(Dispatchers.IO) { app.auto.recover(); app.uploads.recover() } } }
 
     fun openAuto(folder: String) {
+        if (app.store.folder(folder)?.connectionClosed != false) {
+            error.value = "This Folder is stopped. Open Folder settings to retry disconnection or remove it."
+            return
+        }
         directoryPreview.value = null
         autoEditor.value = folder
         directoryFilter.value = app.store.automatic.sources.value.find { it.folderId == folder }?.takeIf { it.directorySync }?.fileFilter
@@ -138,9 +142,36 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkPairing(folder: String) = task { withContext(Dispatchers.IO) { checkConnection(folder) } }
+    fun disconnectFolder(id: String) = task {
+        withContext(Dispatchers.IO) {
+            val folder = requireNotNull(app.store.folder(id)) { "Folder no longer exists." }
+            if (folder.pairingState == "disconnected") return@withContext
+            require(folder.scoped) { "This is a legacy connection. Only local removal is available." }
+            app.auto.stopFolder(id)
+            try {
+                connection.disconnect(folder, app.store.token(id))
+                app.store.finishDisconnect(id)
+            } catch (_: Exception) {
+                error.value = "Stopped locally, but server disconnection is not confirmed. Keep this Folder and use Retry disconnect. Check connectivity and update the relay if it does not support disconnection."
+            }
+        }
+    }
+    fun removeFolder(id: String, done: () -> Unit) = task {
+        withContext(Dispatchers.IO) {
+            val folder = requireNotNull(app.store.folder(id)) { "Folder no longer exists." }
+            require(!folder.scoped || folder.pairingState == "disconnected") { "Disconnect this Folder successfully before removing it." }
+            app.auto.stopFolder(id)
+            app.store.removeFolder(id)
+        }
+        if (selected.value == id) { selected.value = null; pending.value = emptyList() }
+        if (autoEditor.value == id) autoEditor.value = null
+        done()
+    }
     private fun checkConnection(id: String): org.json.JSONObject? {
         val folder = requireNotNull(app.store.folder(id)) { "Folder no longer exists." }
+        require(!folder.connectionClosed) { "Use Retry disconnect, or create a new Folder after disconnection." }
         val info = connection.check(folder, app.store.token(id))
+        if (info?.optString("state") == "disconnected") app.auto.stopFolder(id)
         info?.let { app.store.pairingResult(id, it.getString("state"), it.optString("verification").takeIf { value -> value != "null" && value.isNotBlank() }) }
         return info
     }

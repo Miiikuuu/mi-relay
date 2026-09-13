@@ -230,7 +230,7 @@ def observe(report):
 def main():
     global report_root
     parser = argparse.ArgumentParser()
-    parser.add_argument("--classes", default="DeviceDirectoryTest,DeviceRuntimeTest,DeviceAutoTest,DeviceUiTest,NotificationDeniedTest")
+    parser.add_argument("--classes", default="DeviceDirectoryTest,DeviceRuntimeTest,DeviceAutoTest,DeviceUiTest,NotificationDeniedTest,CameraPermissionDeniedTest")
     parser.add_argument("--skip-recovery", action="store_true")
     parser.add_argument("--observe", action="store_true", help="sample startup/idle and capture dark/landscape/large-font UI; no server or data reset")
     args = parser.parse_args()
@@ -292,6 +292,10 @@ def main():
             if name == "NotificationDeniedTest":
                 adb("shell", "am", "force-stop", PACKAGE)
                 adb("shell", "pm", "revoke", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
+            if name == "CameraPermissionDeniedTest":
+                adb("shell", "am", "force-stop", PACKAGE)
+                adb("shell", "pm", "revoke", PACKAGE, "android.permission.CAMERA", check=False)
+                adb("shell", "pm", "clear-permission-flags", PACKAGE, "android.permission.CAMERA", "user-set", "user-fixed")
             results[name] = instrument(name, report)
         if not args.skip_recovery:
             results["photo_preview_seed"] = instrument("PhotoPreviewRecoveryTest#seedCompletedImage", report)
@@ -348,6 +352,7 @@ def main():
         assert int(re.search(r"acknowledged:\s+(\d+)", final_status).group(1)) == len(records)
         results["linux_all_acknowledged"] = True
         paired_count = 0
+        disconnected_count = 0
         for identity, credential in paired_receivers.items():
             data = report / ("paired-" + identity)
             config = report / ("paired-" + identity + ".toml")
@@ -356,6 +361,16 @@ def main():
             output = subprocess.run([str(ROOT / "target/debug/mirelay"), "--config", str(config), "sync"],
                                     env={**env, "MIRELAY_TOKEN": credential}, capture_output=True, text=True, timeout=60)
             (report / ("paired-" + identity + "-sync.txt")).write_text(output.stdout + output.stderr)
+            with sqlite3.connect(f"file:{report / 'server/mirelay-server.sqlite3'}?mode=ro", uri=True) as db:
+                closed = db.execute("SELECT disconnected FROM folders WHERE id=?", (identity,)).fetchone()
+            if closed and closed[0]:
+                # Explicit disconnect fixtures must reject this brand-new Linux
+                # receiver, rather than being counted as broken happy-path pairs.
+                assert output.returncode != 0 and "[folder_disconnected]" in output.stderr, "Disconnected Folder allowed a Linux receive"
+                saved = data / "state.json"
+                assert not saved.exists() or not json.loads(saved.read_text())["deliveries"], "Disconnected Folder delivered data"
+                disconnected_count += 1
+                continue
             assert output.returncode == 0, "Paired Linux receiver failed"
             saved = data / "state.json"
             paired_records = list(json.loads(saved.read_text())["deliveries"].values()) if saved.exists() else []
@@ -373,6 +388,7 @@ def main():
         if paired_receivers:
             assert paired_count + directory_count >= 1, "Pairing was created but no paired Android upload reached Linux"
         results["paired_linux_delivery_count"] = paired_count
+        results["disconnected_linux_receivers_blocked"] = disconnected_count
         results["paired_linux_exact_bytes_hash_ack"] = True if paired_count else None
         results["directory_linux_path_count"] = directory_count
         results["directory_receipts"] = directory_records

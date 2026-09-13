@@ -33,6 +33,36 @@ class AutoStoreTest {
     @After fun close() { store.close() }
     private fun file(id: String = "new", size: Long? = 42, modified: Long? = 1) = SourceFile(id, Uri.parse("content://test/tree/root/document/$id"), "$id.bin", size, modified)
     private fun enable(files: List<SourceFile> = emptyList(), target: String = folder) = store.automatic.enable(target, "content://test/tree/root", "Source", true, files, 0)
+
+    @Test fun versionFiveUpgradePreservesConsentThenDisconnectSurvivesReopenAndBlocksDowngrade() {
+        val source = enable(listOf(file("old")))
+        val id = UUID.randomUUID().toString()
+        store.addTransfer(id, folder, "keep.bin", 42)
+        store.setFolderKind(folder, FolderKind.PHOTOS)
+        store.writableDatabase.version = 5
+        store.close()
+        val context = RuntimeEnvironment.getApplication()
+        store = RelayStore(context, cipher)
+        assertEquals(6, store.readableDatabase.version)
+        assertEquals(source, store.automatic.source(folder))
+        assertEquals("secret", store.token(folder))
+        assertEquals(FolderKind.PHOTOS, store.folder(folder)!!.kind)
+        assertNotNull(store.transfer(id))
+        store.beginDisconnect(folder)
+        store.close()
+        store = RelayStore(context, cipher)
+        assertFalse(store.connectionOpen(folder))
+        assertFalse(store.automatic.source(folder)!!.enabled)
+        assertEquals("secret", store.token(folder))
+        assertEquals(TransferStatus.PAUSED, store.transfer(id)!!.status)
+        assertTrue(runCatching { enable() }.isFailure)
+        val oldApp = object : android.database.sqlite.SQLiteOpenHelper(context, "relay.db", null, 5) {
+            override fun onCreate(db: SQLiteDatabase) { error("Must not recreate") }
+            override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) { error("Must not upgrade") }
+        }
+        try { assertTrue(runCatching { oldApp.writableDatabase }.isFailure) } finally { oldApp.close() }
+        assertEquals("disconnect_pending", store.folder(folder)!!.pairingState)
+    }
     private fun staged(hash: String = "hash") = StagedFile(UUID.randomUUID().toString(), "new.bin", 42, hash)
     @Test fun sourceIssueCountsTowardAttentionPersistsAndClearsAfterSuccessfulScan() {
         val source = enable()
@@ -104,7 +134,7 @@ class AutoStoreTest {
             db.version = 2
         }
         store = RelayStore(context, cipher); store.refresh()
-        assertEquals(5, store.readableDatabase.version)
+        assertEquals(6, store.readableDatabase.version)
         assertEquals("old-secret", store.token(folder)); assertEquals("legacy", store.folder(folder)!!.pairingState)
         val source = store.automatic.source(folder)!!
         assertTrue(source.enabled); assertFalse(source.prepared); assertEquals("old-revision", source.revision)
@@ -214,6 +244,6 @@ class AutoStoreTest {
         store = RelayStore(context, cipher); store.refresh()
         assertEquals("secret", store.token("legacy")); assertEquals("delivery", store.transfer("receipt")!!.deliveryId)
         assertEquals("owner", store.transfer("receipt")!!.workId); assertNull(store.transfer("receipt")!!.autoRevision)
-        assertEquals(5, store.readableDatabase.version); assertTrue(store.automatic.sources.value.isEmpty())
+        assertEquals(6, store.readableDatabase.version); assertTrue(store.automatic.sources.value.isEmpty())
     }
 }

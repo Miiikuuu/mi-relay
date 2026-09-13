@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -66,18 +66,15 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val prefs = remember(app) { app.getSharedPreferences("appearance", 0) }
     var reduced by rememberSaveable { mutableStateOf(prefs.getBoolean("reduce_transparency", false)) }
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START) refresh++ }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-    val state by produceState(AlbumState(), folder.id, source?.treeUri, refresh) {
-        value = AlbumState()
-        value = if (source == null) AlbumState(loading = false) else try {
-            AlbumState(app.album.scan(source.treeUri), loading = false)
-        } catch (error: CancellationException) { throw error }
-        catch (_: SecurityException) { AlbumState(loading = false, error = "Folder access is unavailable. Restore access in Sync settings.") }
-        catch (_: Exception) { AlbumState(loading = false, error = "Could not read this Folder completely. Check access, then refresh. Sources are limited to 5,000 entries and 16 nested folders.") }
+    val state by produceState(AlbumState(), folder.id, source?.treeUri, refresh, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            value = AlbumState()
+            value = if (source == null) AlbumState(loading = false) else try {
+                AlbumState(app.album.scan(source.treeUri), loading = false)
+            } catch (error: CancellationException) { throw error }
+            catch (_: SecurityException) { AlbumState(loading = false, error = "Folder access is unavailable. Restore access in Sync settings.") }
+            catch (_: Exception) { AlbumState(loading = false, error = "Could not read this Folder completely. Check access, then refresh. Sources are limited to 5,000 entries and 16 nested folders.") }
+        }
     }
     val photos = if (source == null) remember(files) { AlbumPhotos.transfers(files) } else state.photos
     val activityByPath = remember(files) { files.filter { !it.superseded && it.relativePath != null }
@@ -87,6 +84,7 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
     val summary = when {
         failed > 0 -> "$failed need attention"
         active > 0 -> "$active transferring"
+        folder.connectionClosed -> folder.connectionLabel
         folder.pairingState !in listOf("legacy", "ready") -> "Pairing needed"
         source?.enabled == true -> "Auto on"
         source != null -> "Sync paused"
@@ -102,10 +100,10 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
                     Box {
                         IconButton(onClick = { options = true }) { RelayIcon("more", "Album options") }
                         DropdownMenu(options, { options = false }) {
-                            DropdownMenuItem(text = { Text("Sync settings") }, enabled = !busy, onClick = { options = false; syncSettings() })
+                            DropdownMenuItem(text = { Text("Sync settings") }, enabled = !busy && !folder.connectionClosed, onClick = { options = false; syncSettings() })
                             DropdownMenuItem(text = { Text("Folder settings") }, enabled = !busy, onClick = { options = false; settings() })
                             DropdownMenuItem(text = { Text("Transfer activity") }, onClick = { options = false; activity = true })
-                            if (source?.directorySync != true) DropdownMenuItem(text = { Text("Choose files") }, enabled = !busy, onClick = { options = false; chooseFiles() })
+                            if (source?.directorySync != true) DropdownMenuItem(text = { Text("Choose files") }, enabled = !busy && !folder.connectionClosed, onClick = { options = false; chooseFiles() })
                             DropdownMenuItem(text = { Text("General view") }, enabled = !busy, onClick = { options = false; general() })
                             DropdownMenuItem(text = { Text("Reduce transparency") }, trailingIcon = { Checkbox(reduced, null) }, onClick = {
                                 reduced = !reduced; prefs.edit().putBoolean("reduce_transparency", reduced).apply()
@@ -132,7 +130,7 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
                             state.loading -> { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp); Text("Reading photos…", Modifier.padding(top = 16.dp)) }
                             state.error != null -> { Text(state.error!!); TextButton(onClick = { refresh++ }) { Text("Try again") } }
                             source != null -> Text("No photos in this Folder yet")
-                            else -> { Text("Your photos, in one place"); Text("Configure this Folder's source in Sync settings to browse its existing images. Browsing an already configured source never starts an upload.", Modifier.padding(top = 12.dp)); TextButton(onClick = syncSettings, enabled = !busy) { Text("Sync settings") } }
+                            else -> { Text("Your photos, in one place"); Text("Configure this Folder's source in Sync settings to browse its existing images. Browsing an already configured source never starts an upload.", Modifier.padding(top = 12.dp)); TextButton(onClick = syncSettings, enabled = !busy && !folder.connectionClosed) { Text("Sync settings") } }
                         }
                     }
                 }
@@ -162,16 +160,16 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
                     Text(summary)
                     source?.error?.let { Text("Source needs attention. Open Sync settings to review.", Modifier.padding(top = 8.dp)) }
                     if (folder.pairingState != "legacy") {
-                        Text(if (folder.pairingState == "ready") "Paired · ready to send" else "Awaiting pairing · sending is blocked", Modifier.padding(top = 8.dp))
+                        Text(folder.connectionLabel, Modifier.padding(top = 8.dp))
                         folder.verification?.let { Text("Verification: $it") }
-                        TextButton(onClick = checkPairing, enabled = !busy) { Text("Check pairing") }
+                        TextButton(onClick = checkPairing, enabled = !busy && !folder.connectionClosed) { Text("Check pairing") }
                     }
-                    TextButton(onClick = { activity = false; syncSettings() }, enabled = !busy) { Text("Sync settings") }
-                    if (source?.directorySync == true) TextButton(onClick = refreshReceipts, enabled = !busy) { Text("Refresh receipts") }
+                    TextButton(onClick = { activity = false; syncSettings() }, enabled = !busy && !folder.connectionClosed) { Text("Sync settings") }
+                    if (source?.directorySync == true) TextButton(onClick = refreshReceipts, enabled = !busy && !folder.connectionClosed) { Text("Refresh receipts") }
                     if (files.isEmpty()) Text("No transfers yet. Browsing this Folder does not send files.")
                 }
                 items(files.sortedBy { if (it.status in listOf(TransferStatus.QUEUED, TransferStatus.UPLOADING, TransferStatus.FAILED)) 0 else 1 }, key = { it.id }) {
-                    TransferRow(it, busy, { retry(it.id) }, { pause(it.id) })
+                    TransferRow(it, busy || folder.connectionClosed, { retry(it.id) }, { pause(it.id) })
                 }
             }
         }, confirmButton = { TextButton(onClick = { activity = false }) { Text("Close") } })
@@ -179,11 +177,14 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
 
 @Composable private fun albumBitmap(photo: AlbumPhoto, target: Int): State<Bitmap?> {
     val app = LocalContext.current.applicationContext as RelayApplication
-    return produceState<Bitmap?>(null, photo.key, photo.tree, photo.generation, photo.transfer?.status, target) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    return produceState<Bitmap?>(null, photo.key, photo.tree, photo.generation, photo.transfer?.status, target, lifecycle) {
         value = null
-        value = try { app.album.load(photo, app.store, target) }
-        catch (error: CancellationException) { throw error }
-        catch (_: Exception) { null }
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            value = try { app.album.load(photo, app.store, target) }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { null }
+        }
     }
 }
 

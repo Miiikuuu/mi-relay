@@ -50,6 +50,7 @@ pub(super) fn router() -> Router<ApiState> {
         .route("/f/{folder_id}/api/v1/handshake", get(handshake))
         .route("/f/{folder_id}/api/v1/pairing/confirm", post(confirm))
         .route("/f/{folder_id}/api/v1/pairing/renew", post(renew))
+        .route("/f/{folder_id}/api/v1/pairing/disconnect", post(disconnect))
 }
 
 pub(super) fn token_hash(token: &str) -> [u8; 32] {
@@ -96,6 +97,60 @@ fn pending() -> ApiError {
         "pairing_pending",
         "Both devices must confirm pairing before files can be transferred.",
     )
+}
+
+pub(super) fn require_connected(info: &FolderHandshake) -> Result<(), ApiError> {
+    if info.state == "disconnected" {
+        return Err(ApiError::new(
+            StatusCode::GONE,
+            "folder_disconnected",
+            "This Folder is disconnected. Create and confirm a new Folder to transfer again.",
+        ));
+    }
+    Ok(())
+}
+
+/// Permanent, idempotent revocation of this Folder, from either paired device.
+/// Retain only the existing credential hashes for authenticated receipt retries;
+/// they can no longer transfer, confirm or create an invitation. No files deleted.
+async fn disconnect(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<FolderHandshake>, ApiError> {
+    validate_id(&id)?;
+    let hash = supplied_hash(&headers)?;
+    check_protocol(&headers)?;
+    let store = state.inner.store.clone();
+    let folder_id = id.clone();
+    let accepted = folder_store(&state, "disconnect Folder", move || {
+        let mut db = store.open_connection_unchecked()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let row = tx
+            .query_row(
+                "SELECT receiver_hash,sender_hash FROM folders WHERE id=?",
+                [&folder_id],
+                |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Option<Vec<u8>>>(1)?)),
+            )
+            .optional()?;
+        let Some((receiver, sender)) = row else {
+            return Ok(false);
+        };
+        if !same(&receiver, &hash) && !sender.as_ref().is_some_and(|s| same(s, &hash)) {
+            return Ok(false);
+        }
+        tx.execute(
+            "UPDATE folders SET disconnected=1,ready=0,expires=0 WHERE id=?",
+            [&folder_id],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    })
+    .await?;
+    if !accepted {
+        return Err(ApiError::unauthorized());
+    }
+    Ok(Json(identity(&state, id, hash).await?))
 }
 
 async fn create(
@@ -179,7 +234,7 @@ async fn claim(
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let row = tx
             .query_row(
-                "SELECT invite_hash,expires,sender_hash FROM folders WHERE id=?",
+                "SELECT invite_hash,expires,sender_hash FROM folders WHERE id=? AND disconnected=0",
                 [&id],
                 |r| {
                     Ok((
@@ -230,7 +285,7 @@ pub(super) async fn identity(
         let db = store.open_connection_unchecked()?;
         let row = db
             .query_row(
-                "SELECT name,receiver_hash,sender_hash,ready FROM folders WHERE id=?",
+                "SELECT name,receiver_hash,sender_hash,ready,disconnected FROM folders WHERE id=?",
                 [&id],
                 |r| {
                     Ok((
@@ -238,11 +293,12 @@ pub(super) async fn identity(
                         r.get::<_, Vec<u8>>(1)?,
                         r.get::<_, Option<Vec<u8>>>(2)?,
                         r.get::<_, bool>(3)?,
+                        r.get::<_, bool>(4)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((name, receiver, sender, ready)) = row else {
+        let Some((name, receiver, sender, ready, disconnected)) = row else {
             return Ok(None);
         };
         let role = if same(&receiver, &hash) {
@@ -254,8 +310,14 @@ pub(super) async fn identity(
         };
         // Both devices display the same comparison code. Confirm binds to this
         // exact sender, so a stale dialog cannot confirm a replacement claimant.
-        let verification = sender.as_ref().map(|v| hex::encode(&v[..6]));
-        let status = if ready {
+        let verification = if disconnected {
+            None
+        } else {
+            sender.as_ref().map(|v| hex::encode(&v[..6]))
+        };
+        let status = if disconnected {
+            "disconnected"
+        } else if ready {
             "ready"
         } else if sender.is_some() {
             "awaiting_confirmation"
@@ -295,6 +357,7 @@ async fn confirm(
     let hash = supplied_hash(&headers)?;
     check_protocol(&headers)?;
     let info = identity(&state, id.clone(), hash).await?;
+    require_connected(&info)?;
     if info.role != "receiver" {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
@@ -309,7 +372,7 @@ async fn confirm(
     let confirmed = folder_store(&state, "confirm Folder pairing", move || {
         let db = store.open_connection_unchecked()?;
         Ok(db.execute(
-            "UPDATE folders SET ready=1 WHERE id=? AND lower(substr(hex(sender_hash),1,12))=?",
+            "UPDATE folders SET ready=1 WHERE id=? AND disconnected=0 AND lower(substr(hex(sender_hash),1,12))=?",
             params![id, request.verification],
         )? == 1)
     })
@@ -328,6 +391,7 @@ async fn renew(
     let hash = supplied_hash(&headers)?;
     check_protocol(&headers)?;
     let info = identity(&state, id.clone(), hash).await?;
+    require_connected(&info)?;
     if info.role != "receiver" {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
@@ -340,10 +404,11 @@ async fn renew(
     let stored = token_hash(&code);
     let store = state.inner.store.clone();
     folder_store(&state, "replace Folder invitation", move || {
-        store.open_connection_unchecked()?.execute(
-            "UPDATE folders SET invite_hash=?,expires=?,sender_hash=NULL,ready=0 WHERE id=?",
+        let changed = store.open_connection_unchecked()?.execute(
+            "UPDATE folders SET invite_hash=?,expires=?,sender_hash=NULL,ready=0 WHERE id=? AND disconnected=0",
             params![stored.as_slice(), expires as i64, id],
         )?;
+        anyhow::ensure!(changed == 1, "Folder disconnected while replacing invitation");
         Ok(())
     })
     .await?;
@@ -364,6 +429,7 @@ pub(super) async fn authorize_transfer(
     if let Some(path) = uri.path().strip_prefix("/f/") {
         let id = path.split('/').next().unwrap_or("");
         let info = identity(state, id.to_owned(), supplied_hash(headers)?).await?;
+        require_connected(&info)?;
         if info.role != role {
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,

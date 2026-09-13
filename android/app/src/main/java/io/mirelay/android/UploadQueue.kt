@@ -39,6 +39,14 @@ class UploadQueue(context: Context, private val store: RelayStore) {
         store.automatic.disable(folder, reason)
         manager.cancelAllWorkByTag("auto:$folder").result.get()
     }
+    @Synchronized fun stopFolder(folder: String) {
+        store.beginDisconnect(folder)
+        manager.cancelAllWorkByTag("auto:$folder").result.get()
+        // Include older/manual work which predates any Folder-level tag.
+        for (transfer in store.transfers.value.filter { it.folderId == folder }) {
+            manager.cancelUniqueWork("upload:${transfer.id}").result.get()
+        }
+    }
     @Synchronized fun recover(autoSource: AutoSource? = null) {
         store.refresh()
         for (transfer in store.transfers.value) {

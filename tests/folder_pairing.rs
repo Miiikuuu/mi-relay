@@ -16,6 +16,242 @@ const SENDER: &str = "1111111111111111111111111111111111111111111111111111111111
 const OTHER: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 
 #[tokio::test]
+async fn either_device_can_disconnect_and_retries_survive_restart_without_deleting_files() {
+    for sender_initiates in [false, true] {
+        let (root, store, app) = setup();
+        let folder = create(&app).await;
+        ready(&app, &folder).await;
+        let other = create(&app).await;
+        ready(&app, &other).await;
+        let file = root.path().join("keep.txt");
+        std::fs::write(&file, b"must be retained").unwrap();
+        let queue = format!("folder_{}", folder.folder_id);
+        let delivery = store.enqueue(&queue, &file, "keep.txt".into()).unwrap();
+        let initiator = if sender_initiates {
+            SENDER
+        } else {
+            &folder.receiver_token
+        };
+        for credential in ["invalid", LEGACY, ADMIN, &other.receiver_token] {
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &url(&folder, "pairing/disconnect"),
+                    credential,
+                    json!(null)
+                )
+                .await
+                .0,
+                401
+            );
+        }
+        let (status, info) = request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/disconnect"),
+            initiator,
+            json!(null),
+        )
+        .await;
+        assert_eq!(status, 200, "{info}");
+        assert_eq!(info["state"], "disconnected");
+        assert!(info["verification"].is_null());
+        store.initialize().unwrap();
+        let app = router(
+            ApiState::new(store.clone(), "linux".into(), LEGACY)
+                .unwrap()
+                .with_admin_token(ADMIN)
+                .unwrap(),
+        );
+        for credential in [SENDER, &folder.receiver_token] {
+            // A lost successful response can be retried by either device.
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &url(&folder, "pairing/disconnect"),
+                    credential,
+                    json!(null)
+                )
+                .await
+                .0,
+                200
+            );
+            assert_eq!(
+                request(
+                    &app,
+                    "GET",
+                    &url(&folder, "handshake"),
+                    credential,
+                    json!(null)
+                )
+                .await
+                .1["state"],
+                "disconnected"
+            );
+            for (method, path, body) in [
+                ("GET", "deliveries?status=pending", json!(null)),
+                ("POST", "uploads", json!(null)),
+                ("GET", "directory", json!(null)),
+                (
+                    "POST",
+                    "pairing/confirm",
+                    json!({"verification":"abcdef123456"}),
+                ),
+                ("POST", "pairing/renew", json!(null)),
+            ] {
+                assert_eq!(
+                    request(&app, method, &url(&folder, path), credential, body)
+                        .await
+                        .0,
+                    410,
+                    "{method} {path}"
+                );
+            }
+        }
+        assert_eq!(claim(&app, &folder, SENDER).await.0, 401);
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                &url(&other, "deliveries?status=pending"),
+                &other.receiver_token,
+                json!(null)
+            )
+            .await
+            .0,
+            200
+        );
+        assert_eq!(
+            store.get_delivery(&queue, &delivery.id).unwrap().unwrap(),
+            delivery
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"must be retained");
+        assert_eq!(store.stats(&queue).unwrap().pending, 1);
+    }
+}
+
+#[tokio::test]
+async fn unclaimed_folder_can_be_disconnected_and_cannot_be_claimed() {
+    let (_root, _store, app) = setup();
+    let folder = create(&app).await;
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/disconnect"),
+            SENDER,
+            json!(null)
+        )
+        .await
+        .0,
+        401
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/disconnect"),
+            &folder.receiver_token,
+            json!(null)
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(claim(&app, &folder, SENDER).await.0, 401);
+}
+
+#[tokio::test]
+async fn version_three_upgrade_keeps_live_pairing_and_is_idempotent() {
+    let (root, store, app) = setup();
+    let folder = create(&app).await;
+    ready(&app, &folder).await;
+    let db = rusqlite::Connection::open(root.path().join("server/mirelay-server.sqlite3")).unwrap();
+    db.execute_batch("ALTER TABLE folders DROP COLUMN disconnected; PRAGMA user_version=3;")
+        .unwrap();
+    store.initialize().unwrap();
+    store.initialize().unwrap();
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &url(&folder, "handshake"),
+            &folder.receiver_token,
+            json!(null)
+        )
+        .await
+        .1["state"],
+        "ready"
+    );
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/disconnect"),
+            SENDER,
+            json!(null)
+        )
+        .await
+        .0,
+        200
+    );
+}
+
+#[tokio::test]
+async fn concurrent_renewal_cannot_resurrect_disconnected_folder() {
+    let (_root, _store, app) = setup();
+    for _ in 0..8 {
+        let folder = create(&app).await;
+        ready(&app, &folder).await;
+        let disconnect_url = url(&folder, "pairing/disconnect");
+        let renew_url = url(&folder, "pairing/renew");
+        let (disconnected, _) = tokio::join!(
+            request(
+                &app,
+                "POST",
+                &disconnect_url,
+                &folder.receiver_token,
+                json!(null)
+            ),
+            request(
+                &app,
+                "POST",
+                &renew_url,
+                &folder.receiver_token,
+                json!(null)
+            )
+        );
+        assert_eq!(disconnected.0, 200);
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                &url(&folder, "handshake"),
+                &folder.receiver_token,
+                json!(null)
+            )
+            .await
+            .1["state"],
+            "disconnected"
+        );
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &renew_url,
+                &folder.receiver_token,
+                json!(null)
+            )
+            .await
+            .0,
+            410
+        );
+    }
+}
+
+#[tokio::test]
 async fn protocol_duplicate_auth_and_oversized_setup_requests_are_rejected() {
     let (_root, _store, app) = setup();
     let response = app

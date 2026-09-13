@@ -155,6 +155,7 @@ pub fn sync_once_with_events(
     emit: &dyn Fn(SyncEvent),
 ) -> Result<SyncSummary> {
     config.validate()?;
+    config.require_connected()?;
     anyhow::ensure!(
         !config.directory_sync,
         "This Folder uses directory sync. Receive through the Linux desktop app or mirelay-directory, not the delivery-only sync command."

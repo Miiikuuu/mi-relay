@@ -15,6 +15,7 @@ pub fn source_for(
     config: &Config,
     token_override: Option<&str>,
 ) -> Result<Box<dyn DeliverySource>> {
+    config.require_connected()?;
     match &config.server {
         ServerConfig::Filesystem { inbox_dir } => {
             Ok(Box::new(FilesystemSource::new(inbox_dir.clone())))

@@ -29,10 +29,10 @@ class RehearsalTests(unittest.TestCase):
     def test_default_and_explicit_upgrade_versions(self):
         paths = ["--old-binary", "/old", "--new-binary", "/new"]
         args = rehearsal.parse_args(paths)
-        self.assertEqual((args.old_schema, args.new_schema), (2, 3))
+        self.assertEqual((args.old_schema, args.new_schema), (3, 4))
         args = rehearsal.parse_args(paths + ["--old-schema", "1", "--new-schema", "2"])
         self.assertEqual((args.old_schema, args.new_schema), (1, 2))
-        for extra in (["--new-schema", "2"], ["--old-schema", "3"], ["--new-schema", "1"]):
+        for extra in (["--new-schema", "2"], ["--old-schema", "4"], ["--new-schema", "1"]):
             with self.subTest(extra=extra), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 rehearsal.parse_args(paths + extra)
 
@@ -63,6 +63,26 @@ class RehearsalTests(unittest.TestCase):
             with self.assertRaises(sqlite3.OperationalError):
                 rehearsal.database_snapshot(path)
             self.assertFalse(path.exists())
+
+    def test_schema_four_allows_only_default_disconnection_column(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.sqlite3"
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("CREATE TABLE folders(id TEXT PRIMARY KEY, credential BLOB);"
+                                 "INSERT INTO folders VALUES('test',x'010203'); PRAGMA user_version=3;")
+            before = rehearsal.database_snapshot(path)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("ALTER TABLE folders ADD COLUMN disconnected INTEGER NOT NULL DEFAULT 0;"
+                                 "PRAGMA user_version=4;")
+            rehearsal.require_retained(before, rehearsal.database_snapshot(path), 4)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("UPDATE folders SET disconnected=1;")
+            with self.assertRaises(RuntimeError):
+                rehearsal.require_retained(before, rehearsal.database_snapshot(path), 4)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("UPDATE folders SET disconnected=0, credential=x'040506';")
+            with self.assertRaises(RuntimeError):
+                rehearsal.require_retained(before, rehearsal.database_snapshot(path), 4)
 
     def test_foreign_key_violation_blocks_acceptance(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -22,12 +22,14 @@ public final class AutoFixtureProvider extends DocumentsProvider {
     static final String AUTHORITY = "io.mirelay.android.test.auto";
     private static final Map<String, Bundle> FILES = new LinkedHashMap<>();
     private static String listingMode = "";
+    private static int opens = 0;
     private static final String[] COLUMNS = {Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME,
         Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED, Document.COLUMN_FLAGS};
     static synchronized Bundle control(Context context, String operation, Bundle args) {
         Uri tree = DocumentsContract.buildTreeDocumentUri(AUTHORITY, "root");
         switch (operation) {
-            case "reset": FILES.clear(); listingMode = ""; break;
+            case "reset": FILES.clear(); listingMode = ""; opens = 0; break;
+            case "stats": Bundle stats = new Bundle(); stats.putInt("opens", opens); return stats;
             case "put": FILES.put(args.getString("id"), new Bundle(args)); break;
             case "remove": FILES.remove(args.getString("id")); break;
             case "mode": listingMode = args.getString("mode", ""); break;
@@ -104,7 +106,7 @@ public final class AutoFixtureProvider extends DocumentsProvider {
     }
     @Override public ParcelFileDescriptor openDocument(String id, String mode, CancellationSignal signal) throws FileNotFoundException {
         final Bundle file;
-        synchronized (AutoFixtureProvider.class) { file = new Bundle(entry(id)); }
+        synchronized (AutoFixtureProvider.class) { file = new Bundle(entry(id)); opens++; }
         if (!"r".equals(mode)) throw new FileNotFoundException("Read only");
         long size = file.getLong("size", 4096);
         if (size < 0 || size > 101 * 1024 * 1024) throw new FileNotFoundException("Fixture too large");

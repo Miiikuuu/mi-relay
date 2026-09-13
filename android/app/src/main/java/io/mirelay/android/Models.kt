@@ -6,7 +6,17 @@ const val MAX_FILE_BYTES = 100L * 1024 * 1024
 const val MAX_SHARED_FILES = 20
 
 data class Folder(val id: String, val name: String, val server: String, val insecure: Boolean,
-    val pairingState: String = "legacy", val verification: String? = null, val kind: FolderKind = FolderKind.GENERAL)
+    val pairingState: String = "legacy", val verification: String? = null, val kind: FolderKind = FolderKind.GENERAL) {
+    val connectionClosed get() = pairingState in listOf("disconnect_pending", "disconnected")
+    val scoped get() = URI(server).path.orEmpty().contains("/f/")
+    val connectionLabel get() = when (pairingState) {
+        "disconnect_pending" -> "Disconnect pending · stopped locally"
+        "disconnected" -> "Disconnected"
+        "ready" -> "Paired · ready to send"
+        "legacy" -> "Legacy connection"
+        else -> "Awaiting pairing · sending is blocked"
+    }
+}
 enum class TransferStatus { QUEUED, UPLOADING, PAUSED, FAILED, UPLOADED }
 data class Transfer(
     val id: String, val folderId: String, val name: String, val size: Long,

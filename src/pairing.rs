@@ -92,6 +92,7 @@ impl PairingClient {
             409 => {
                 bail!("Folder state changed or needs confirmation. Refresh before retrying.")
             }
+            410 => bail!("This Folder has been disconnected. Create a new Folder to reconnect."),
             426 => bail!("Server and app protocol versions are incompatible."),
             _ => bail!("The server could not complete setup. No automatic retry was made."),
         }
@@ -191,6 +192,21 @@ impl PairingClient {
         Ok(invite)
     }
 
+    pub fn disconnect(&self) -> Result<FolderHandshake> {
+        let info: FolderHandshake =
+            self.request(Method::POST, "api/v1/pairing/disconnect", None::<&()>)?;
+        validate_handshake(&info)?;
+        ensure!(
+            info.state == "disconnected"
+                && self
+                    .base
+                    .path()
+                    .ends_with(&format!("/f/{}/", info.folder_id)),
+            "Server did not confirm disconnection of this Folder. Keep the credential and retry."
+        );
+        Ok(info)
+    }
+
     /// Legacy configurations remain usable, but are not represented as paired.
     pub fn verify_receiver(&self) -> Result<Option<FolderHandshake>> {
         if self.base.path().contains("/f/") {
@@ -242,14 +258,14 @@ fn validate_handshake(info: &FolderHandshake) -> Result<()> {
             && matches!(info.role.as_str(), "receiver" | "sender")
             && matches!(
                 info.state.as_str(),
-                "ready" | "awaiting_peer" | "awaiting_confirmation"
+                "ready" | "awaiting_peer" | "awaiting_confirmation" | "disconnected"
             )
             && !info.name.trim().is_empty()
             && info.name.len() <= 128
             && !info.name.chars().any(char::is_control)
             && info.max_file_size_bytes > 0
             && match (&info.verification, info.state.as_str()) {
-                (None, "awaiting_peer") => true,
+                (None, "awaiting_peer" | "disconnected") => true,
                 (Some(v), "ready" | "awaiting_confirmation") =>
                     v.len() == 12 && v.bytes().all(|b| b.is_ascii_hexdigit()),
                 _ => false,
@@ -298,6 +314,28 @@ mod tests {
             let server=MockServer::start();
             server.mock(|when,then|{when.path(format!("/f/{ID}/api/v1/handshake"));then.status(200).body(body);});
             assert!(PairingClient::new(&server.url(format!("/f/{ID}")),"test-token",true).unwrap().handshake().is_err());
+        }
+    }
+
+    #[test]
+    fn disconnect_rejects_unconfirmed_or_mismatched_receipts_without_retry() {
+        for (folder_id, state, verification) in [
+            (ID, "ready", Some("012345abcdef")),
+            ("00000000-0000-4000-8000-000000000002", "disconnected", None),
+            (ID, "disconnected", Some("012345abcdef")),
+        ] {
+            let server = MockServer::start();
+            let request = server.mock(|when, then| {
+                when.method(httpmock::Method::POST).path(format!("/f/{ID}/api/v1/pairing/disconnect"));
+                then.status(200).json_body(json!({"schema_version":1,"folder_id":folder_id,"name":"Test","role":"receiver","state":state,"verification":verification,"max_file_size_bytes":1024}));
+            });
+            assert!(
+                PairingClient::new(&server.url(format!("/f/{ID}")), "test-token", true)
+                    .unwrap()
+                    .disconnect()
+                    .is_err()
+            );
+            request.assert_calls(1);
         }
     }
 

@@ -19,6 +19,14 @@ internal class FolderConnection(private val context: Context) {
     fun claim(server: String, code: String, token: String, insecure: Boolean): JSONObject =
         call("claim", server, token, insecure, code).getJSONObject("result")
 
+    fun disconnect(folder: Folder, token: String) {
+        require(folder.scoped) { "Legacy credentials cannot be revoked per Folder. Remove locally or ask the server administrator to rotate the shared token." }
+        val info = call("disconnect", folder.server, token, folder.insecure).getJSONObject("result")
+        require(info.getString("role") == "sender" && info.getString("state") == "disconnected") {
+            "Server did not confirm disconnection. Keep this Folder and retry."
+        }
+    }
+
     fun check(folder: Folder, token: String): JSONObject? {
         val scoped = URI(folder.server).path.orEmpty().contains("/f/")
         val response = call(if (scoped) "handshake" else "legacy_check", folder.server, token, folder.insecure)

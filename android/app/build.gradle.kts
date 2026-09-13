@@ -33,6 +33,7 @@ android {
             it.systemProperty("user.home", testHome.absolutePath)
             it.systemProperty("maven.repo.local", rootProject.file(".local/robolectric").absolutePath)
             it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            System.getProperty("mirelay.qr.fixture")?.let { path -> it.systemProperty("mirelay.qr.fixture", path) }
             System.getProperty("https.proxyHost")?.let { host -> it.systemProperty("robolectric.dependency.proxy.host", host) }
             System.getProperty("https.proxyPort")?.let { port -> it.systemProperty("robolectric.dependency.proxy.port", port) }
         }
@@ -53,6 +54,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("androidx.core:core-ktx:1.17.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16")
     androidTestImplementation("androidx.test:runner:1.7.0")

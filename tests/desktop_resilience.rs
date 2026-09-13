@@ -252,6 +252,70 @@ fn desktop_idle_cpu_and_memory_sample() {
 }
 
 #[test]
+#[ignore = "requires a graphical session; samples the real app, not an in-process GTK harness"]
+fn desktop_album_idle_preserves_originals() {
+    use mirelay::bridge_registry::FolderKind;
+    use sha2::{Digest, Sha256};
+    let mut fixture = Fixture::new();
+    let config = Config::load(&fixture.root.path().join("one/config.toml")).unwrap();
+    let store = StateStore::new(config.storage.state_file.clone());
+    let mut state = store.load().unwrap();
+    let template = state.deliveries.values().next().unwrap().clone();
+    let bytes = include_bytes!("../assets/brand/MiRelay-brand-kit-v1/icons/png/mirelay-512.png");
+    let hash = hex::encode(Sha256::digest(bytes));
+    for index in 0..120 {
+        let mut record = template.clone();
+        record.id = format!("album-{index}");
+        record.original_name = format!("photo-{index}.png");
+        record.media_type = "image/png".into();
+        record.size = bytes.len() as u64;
+        record.sha256 = hash.clone();
+        record.stored_path = template
+            .stored_path
+            .parent()
+            .unwrap()
+            .join(&record.original_name);
+        fs::write(&record.stored_path, bytes).unwrap();
+        fixture.protected.push(record.stored_path.clone());
+        state.deliveries.insert(record.id.clone(), record);
+    }
+    store.save(&state).unwrap();
+    BridgeRegistryStore::new(fixture.registry.clone())
+        .update(|registry| registry.set_kind("one", FolderKind::Photos))
+        .unwrap();
+    let originals = fixture.bytes();
+    let mut child = TestChild(fixture.command().spawn().unwrap());
+    thread::sleep(Duration::from_secs(3));
+    assert!(child.0.try_wait().unwrap().is_none());
+    let hz: f64 = String::from_utf8(
+        Command::new("getconf")
+            .arg("CLK_TCK")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .parse()
+    .unwrap();
+    let before = process_sample(child.0.id());
+    let start = Instant::now();
+    thread::sleep(Duration::from_secs(8));
+    let after = process_sample(child.0.id());
+    println!(
+        "QA_ALBUM_APP_IDLE {}",
+        serde_json::json!({
+            "seconds": start.elapsed().as_secs_f64(),
+            "cpu_percent_one_core": (after.0-before.0) as f64 / hz / start.elapsed().as_secs_f64() * 100.0,
+            "rss_before_kib": before.1, "rss_after_kib": after.1,
+            "scope": "real debug desktop process; 120 local PNG records, first page; repeated original brand fixture, not a diverse library"
+        })
+    );
+    assert!(child.0.try_wait().unwrap().is_none());
+    assert_eq!(fixture.bytes(), originals);
+}
+
+#[test]
 #[ignore = "requires a graphical session; validates broken-config isolation"]
 fn corrupt_folder_config_does_not_crash_desktop_or_get_overwritten() {
     let fixture = Fixture::new();

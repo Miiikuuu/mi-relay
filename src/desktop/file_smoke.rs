@@ -626,15 +626,13 @@ pub(super) fn run(ui: &Rc<DesktopUi>) -> Result<()> {
                 .kind
                 == crate::bridge_registry::FolderKind::Photos
         );
-        ensure!(
-            w.photo_grid.child_at_index(0).is_some() && w.photo_grid.child_at_index(1).is_none()
-        );
+        ensure!(w.photo_grid.len() == 1);
         ensure!(names(ui).contains(&"Waiting.png".to_owned()));
         ensure!(!names(ui).contains(&"Photo.PNG".to_owned()));
-        let tile = w.photo_grid.child_at_index(0).unwrap();
+        let tile = w.photo_grid.item(0).unwrap();
         ui.render_current_bridge();
         ensure!(
-            w.photo_grid.child_at_index(0).as_ref() == Some(&tile),
+            w.photo_grid.item(0).as_ref() == Some(&tile),
             "unchanged gallery should retain thumbnails"
         );
         ui.handle_file_progress(
@@ -649,12 +647,12 @@ pub(super) fn run(ui: &Rc<DesktopUi>) -> Result<()> {
         );
         ensure!(names(ui).first().map(String::as_str) == Some("Downloading.png"));
         ensure!(
-            w.photo_grid.child_at_index(0).as_ref() == Some(&tile),
+            w.photo_grid.item(0).as_ref() == Some(&tile),
             "transfer progress rebuilt completed thumbnails"
         );
         ui.file_activity.borrow_mut().remove(&active_id);
         w.folder_category.set_selected(0);
-        ensure!(w.photo_grid.child_at_index(0).is_none());
+        ensure!(w.photo_grid.len() == 0);
         ensure!(names(ui).contains(&"Photo.PNG".to_owned()));
         ensure!(
             ui.paths.registry.load()? == original_registry,

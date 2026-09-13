@@ -21,7 +21,7 @@ pub use crate::storage::validate_sha256;
 const DATABASE_NAME: &str = "mirelay-server.sqlite3";
 const CONTENT_DIR_NAME: &str = "content";
 const UPLOADS_DIR_NAME: &str = "uploads";
-const SERVER_SCHEMA_VERSION: i64 = 3;
+const SERVER_SCHEMA_VERSION: i64 = 4;
 const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -154,7 +154,7 @@ impl ServerStore {
                     .commit()
                     .context("failed to commit server database schema")?;
             }
-            1 | 2 | SERVER_SCHEMA_VERSION => {}
+            1 | 2 | 3 | SERVER_SCHEMA_VERSION => {}
             other => bail!(
                 "unsupported server database schema version {other}; expected {SERVER_SCHEMA_VERSION}"
             ),
@@ -185,6 +185,12 @@ impl ServerStore {
                 CREATE INDEX directory_paths ON directory_versions(device_id,path,version);
                 CREATE TABLE directory_indexes (device_id TEXT PRIMARY KEY, inventory TEXT NOT NULL);
                 PRAGMA user_version=3; COMMIT;")?;
+        }
+        if version < 4 {
+            let transaction =
+                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transaction.execute_batch("ALTER TABLE folders ADD COLUMN disconnected INTEGER NOT NULL DEFAULT 0 CHECK(disconnected IN (0,1)); PRAGMA user_version=4;")?;
+            transaction.commit()?;
         }
         harden_database_permissions(&self.database_path)?;
         Ok(())

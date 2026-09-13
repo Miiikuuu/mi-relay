@@ -23,6 +23,9 @@ internal object AutoFixture {
     fun control(operation: String, args: Bundle = Bundle()) {
         DeviceSupport.app.contentResolver.call(Uri.parse("content://io.mirelay.android.test.fixtures"), "auto", operation, args)
     }
+    fun opens(): Int = checkNotNull(DeviceSupport.app.contentResolver.call(
+        Uri.parse("content://io.mirelay.android.test.fixtures"), "auto", "stats", Bundle()
+    )).getInt("opens")
     fun put(id: String, size: Long = 12345, parent: String = "root", extra: Bundle.() -> Unit = {}) = control("put", Bundle().apply {
         putString("id", id); putLong("size", size); putString("parent", parent); extra()
     })

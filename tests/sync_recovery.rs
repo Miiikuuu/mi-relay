@@ -135,6 +135,7 @@ fn png_bytes() -> Vec<u8> {
 fn config(root: &TempDir, command: Vec<String>) -> Config {
     Config {
         schema_version: 1,
+        connection_state: Default::default(),
         directory_sync: false,
         device_id: "test-device".into(),
         server: ServerConfig::Filesystem {

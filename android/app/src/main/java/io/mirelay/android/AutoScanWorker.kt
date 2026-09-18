@@ -13,7 +13,10 @@ class AutoScanWorker(context: Context, parameters: WorkerParameters) : Worker(co
         val revision = inputData.getString("revision") ?: return Result.failure()
         val source = app.store.automatic.source(folder)?.takeIf { it.enabled && it.revision == revision } ?: return Result.success()
         return try {
-            AutoSession(stopped = { isStopped || !app.store.automatic.active(folder, revision) }).use { operation ->
+            val stopped = { isStopped || !app.store.automatic.active(folder, revision) }
+            val scanSession = if (source.directorySync) AutoSession.directoryScan(stopped, background = true)
+                else AutoSession(stopped = stopped)
+            scanSession.use { operation ->
                 session = operation
                 val pending = app.auto.scan(source, operation)
                 // At most ONE delayed stability follow-up per periodic/manual check, not a poll loop.
@@ -26,7 +29,7 @@ class AutoScanWorker(context: Context, parameters: WorkerParameters) : Worker(co
             Result.failure()
         } catch (_: OperationCanceledException) {
             if (!isStopped && app.store.automatic.active(folder, revision)) {
-                app.store.automatic.scanResult(source, System.currentTimeMillis(), "Source check timed out. Choose a smaller or locally available directory.")
+                app.store.automatic.scanResult(source, System.currentTimeMillis(), "Source check stopped making progress or reached its background time budget. No partial scan was accepted. Keep the source locally available and retry.")
             }
             if (isStopped || runAttemptCount >= 3) Result.failure() else Result.retry()
         } catch (error: DirectoryScanException) {

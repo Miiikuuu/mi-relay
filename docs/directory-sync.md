@@ -107,9 +107,18 @@ an older server binary cannot read schema 3. The live VPS has not been migrated.
 - At most 5,000 paths in a source ledger/server Folder; historical deleted paths
   count toward this limit. At most 5,000 files in an inventory, 16 directory levels,
   1,024 UTF-8 bytes per relative path and 255 per component.
-- Full-content inventory scans are bounded to 4 GiB total file bytes, 10,000
-  visited entries and a 90-second checked traversal budget. This is not an
-  interruptible deadline for an individual blocked filesystem operation.
+- Full-content inventories have no aggregate file-byte cap. Linux bounds traversal
+  to 10,000 visited entries and hashes one file at a time with a 64 KiB buffer.
+  Its 90-second inactivity check renews on successful traversal/read progress,
+  not merely elapsed scan time. It cannot interrupt a blocked filesystem call;
+  when the call returns, an expired scan fails without accepting a partial inventory.
+- Android likewise streams hashes with one reusable 64 KiB buffer. Directory
+  preview/confirmation uses a 90-second inactivity deadline. Background directory
+  workers additionally have an eight-minute absolute budget and remain cancellable;
+  a timeout never commits a partial inventory. Exceptionally slow/large libraries
+  can still exceed this background budget. Full-content hashing is not yet an
+  incremental/resumable inventory scan. Upload staging stays bounded to 100 MiB
+  per batch; removing the folder-size cap does not enqueue the whole library at once.
 - Inventory/metadata state is capped at 8 MiB; exceptionally long names can reach
   this before the file-count limit. Exceeding a limit fails rather than accepting
   a partial inventory.

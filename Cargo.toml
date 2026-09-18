@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Privacy-first file delivery CLI and self-hosted server"
+license = "MIT"
+repository = "https://github.com/Miiikuuu/mi-relay"
 default-run = "mirelay"
 
 [features]

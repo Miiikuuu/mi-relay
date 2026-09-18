@@ -6,7 +6,7 @@ VPS，以及正在运行的 Linux GTK 应用；不是模拟器或 Linux 发送�
 ## 范围
 
 - 只新增一个独立服务器 Folder，Linux 名称为 `Init test`，Android 名称为 `Init-test`。
-- Linux 目标：`/home/user/Documents/MiRelay-init-test-rNrCzF`。
+- Linux 目标：用户 Documents 下的隔离测试目录（个人主目录路径已隐去）。
 - 手机源：`Documents/MiRelay-init-test-rNrCzF`，由系统文件选择器授权此测试目录。
 - 所有文件都是合成的小文本，不初始化真实 Pixiv 目录，不转换、删除或重置 `test02`。
 - 服务器 Folder 通过 HTTPS 管理 API 创建；Android 使用普通添加界面认领邀请，核对两端

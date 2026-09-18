@@ -154,6 +154,7 @@ pub(super) fn panel(
         });
     }
     group.add(&invitation_row);
+    group.add(&qr.content);
     let status = gtk::Label::builder()
         .label("Not checked")
         .wrap(true)

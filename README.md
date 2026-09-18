@@ -19,6 +19,14 @@ sync is explicitly **one-way, Android → Linux**, not a two-way mirror or a bac
 guarantee. There is no end-to-end encryption: your relay can read file contents
 and metadata. Start with a separate test Folder and keep backups.
 
+This is a **source-first experimental project**, not a stable distribution
+release. Read the [known validation gaps](RELEASE_VALIDATION.md) before using
+personal files. See [contributing](CONTRIBUTING.md) and
+[private vulnerability reporting](SECURITY.md).
+
+Code and documentation: [MIT](LICENSE). MiRelay's logo and artistic wordmark:
+[separate brand terms](BRAND_LICENSE.md). Third-party notices: [NOTICE](NOTICE.md).
+
 ## What it does
 
 - Manage multiple **Folders**, each with its own destination and connection.
@@ -153,6 +161,14 @@ is open**. Android periodic checks run approximately every 30 minutes, subject
 to network, battery, storage and OS restrictions. Force-stopping Android blocks
 automatic work until the app is reopened.
 
+Minimizing the Linux window is fine; exiting the app stops automatic receive.
+Close Folder Settings to let its automatic checks resume. Android's **Unmetered
+network only** option can leave Auto enabled but waiting for Wi-Fi: a cellular
+connection through a VPN/proxy may still be metered. To allow cellular uploads,
+pause sync, uncheck that option, and resume; existing initialization is retained.
+**Check now** still respects network/battery/storage requirements. Consider the
+size of the initial library before allowing mobile-data use.
+
 Linux credentials entered in the UI are currently **session-only**. Keep the
 receiver token privately or supply the environment variable named in the Folder's
 configuration when restarting; keyring persistence is not implemented yet.
@@ -212,8 +228,9 @@ files are stored and acknowledged without running wallpaper actions.
 
 Directory sync rejects unsafe paths, symlinks and special files. It requires a
 Linux filesystem supporting the necessary atomic rename operations. Scans and
-inventories are bounded, including a 5,000-path limit and a 4 GiB full-content
-scan limit. See [all directory limits](docs/directory-sync.md#limits-and-safety-boundaries).
+inventories are bounded, including a 5,000-path limit; there is no 4 GiB total
+folder-size cap. Contents are hashed using a reusable 64 KiB buffer.
+See [all directory limits](docs/directory-sync.md#limits-and-safety-boundaries).
 
 Android keeps source access read-only and encrypts stored credentials using
 Android Keystore. Configuration and desktop registries contain token environment

@@ -78,6 +78,8 @@ jobs:
       - run: python3 scripts/ci-run.py --label clippy -- cargo clippy --locked --all-targets --all-features -- -D warnings
       - run: python3 scripts/ci-run.py --label deploy -- python3 -m unittest discover -s deploy -p 'test_*.py' -v
       - run: python3 scripts/ci-run.py --label scripts -- python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Publication hygiene (tracked files; not a full secret audit)
+        run: python3 scripts/audit-public.py
       - name: Validate workflow syntax
         run: |
           curl --fail --silent --show-error --location --retry 3 -o "$RUNNER_TEMP/actionlint.tar.gz" https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
@@ -109,6 +111,10 @@ jobs:
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: GTK invitation lifecycle
         run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-qr --min-tests 1 -- cargo test --locked --features desktop --lib desktop::pairing_panel::qr::tests::gtk_qr_expiry_invalid_input_and_replacement -- --exact --ignored --test-threads=1
+      - name: GTK inline QR interaction
+        run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-qr-inline --min-tests 1 -- cargo test --locked --features desktop --lib desktop::pairing_panel::qr::tests::gtk_inline_qr_never_grabs_input_and_clear_hides_it -- --exact --ignored --test-threads=1
+      - name: GTK nonmodal About
+        run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-about --min-tests 1 -- cargo test --locked --features desktop --lib desktop::brand::tests::gtk_about_opens_with_complete_artwork_in_both_themes -- --exact --ignored --test-threads=1
       - name: GTK create validation
         run: dbus-run-session -- xvfb-run -a python3 scripts/ci-run.py --label gtk-create --min-tests 1 -- cargo test --locked --features desktop --lib desktop::pairing_panel::tests::gtk_create_keeps_invalid_credentials_and_shows_inline_results -- --exact --ignored --test-threads=1
       - name: GTK preview lifecycle

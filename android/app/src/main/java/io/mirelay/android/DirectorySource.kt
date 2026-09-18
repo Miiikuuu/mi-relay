@@ -13,20 +13,37 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /** One bounded operation, with no surviving polling thread after close(). */
-internal class AutoSession(timeoutMillis: Long = 90_000, private val stopped: () -> Boolean = { false }) : Closeable {
+internal class AutoSession(
+    timeoutMillis: Long = 90_000,
+    private val stopped: () -> Boolean = { false },
+    progressTimeout: Boolean = false,
+    maxDurationMillis: Long? = null,
+) : Closeable {
+    companion object {
+        fun directoryScan(stopped: () -> Boolean = { false }, background: Boolean = false) =
+            AutoSession(stopped = stopped, progressTimeout = true,
+                maxDurationMillis = if (background) 8 * 60_000L else null)
+    }
     var directoryProgress: Boolean = false
     val signal = CancellationSignal()
     private val stream = AtomicReference<Closeable?>()
     private val timer = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "auto-deadline").apply { isDaemon = true } }
-    private val deadline = timer.schedule({ cancel() }, timeoutMillis, TimeUnit.MILLISECONDS)
-    fun check() { if (stopped()) cancel(); signal.throwIfCanceled() }
+    private val budget = ScanDeadline(timeoutMillis, progressTimeout, maxDurationMillis)
+    // No catch-up bursts when Android resumes a cached process.
+    private val deadline = timer.scheduleWithFixedDelay({ if (budget.expired()) cancel() },
+        minOf(timeoutMillis, 1_000), minOf(timeoutMillis, 1_000), TimeUnit.MILLISECONDS)
+    fun check() { if (stopped() || budget.expired()) cancel(); signal.throwIfCanceled() }
+    fun progress() { if (!budget.progress()) cancel(); check() }
     fun track(value: Closeable) { stream.set(value); check() }
     fun untrack(value: Closeable) { stream.compareAndSet(value, null) }
     fun cancel() {
-        try { stream.getAndSet(null)?.close() } catch (_: Exception) { }
-        signal.cancel()
+        try { signal.cancel() }
+        finally { try { stream.getAndSet(null)?.close() } catch (_: Exception) { } }
     }
-    override fun close() { deadline.cancel(false); cancel(); timer.shutdownNow() }
+    override fun close() {
+        deadline.cancel(false)
+        try { cancel() } finally { timer.shutdownNow() }
+    }
 }
 
 internal data class DirectorySnapshot(val name: String, val files: List<SourceFile>)
@@ -63,7 +80,7 @@ internal class DirectorySource(private val resolver: ContentResolver) {
             query(children, session).use { cursor ->
                 check(!cursor.extras.getBoolean(DocumentsContract.EXTRA_LOADING, false)) { "Source is still loading. Try again when it is available." }
                 while (cursor.moveToNext()) {
-                    session.check()
+                    session.progress()
                     val id = requireNotNull(cursor.text(Document.COLUMN_DOCUMENT_ID)) { "Source returned an invalid document." }
                     require(id.isNotEmpty() && id.length <= 4096 && seen.add(id)) { "Source returned duplicate or cyclic documents." }
                     require(seen.size <= AutoStore.MAX_ENTRIES + 1) { "Source exceeds 5,000 entries. Choose a smaller directory." }
@@ -90,7 +107,7 @@ internal class DirectorySource(private val resolver: ContentResolver) {
         session.check()
         val cursor = checkNotNull(resolver.query(uri, columns, null, null, null, session.signal)) { "Source did not return a complete listing." }
         try {
-            session.check()
+            session.progress()
             check(!cursor.extras.getBoolean(DocumentsContract.EXTRA_LOADING, false) && cursor.extras.getString(DocumentsContract.EXTRA_ERROR).isNullOrEmpty()) { "Source is still loading or reported an error." }
             return cursor
         } catch (error: Exception) { cursor.close(); throw error }
@@ -107,6 +124,7 @@ internal class DirectorySource(private val resolver: ContentResolver) {
     fun hashes(tree: Uri, files: List<SourceFile>, session: AutoSession): List<HashedSource> {
         session.check()
         DirectoryScanException.validate(files)
+        val buffer = ByteArray(64 * 1024)
         return files.map { file ->
             DirectoryPaths.validate(file.relativePath)
             check(metadata(tree, file, session, true).fingerprint == file.fingerprint) { "Source changed; refresh the preview." }
@@ -116,13 +134,13 @@ internal class DirectorySource(private val resolver: ContentResolver) {
                 descriptor.createInputStream().use { input ->
                     session.track(input)
                     try {
-                        val buffer = ByteArray(64 * 1024)
                         while (true) {
                             session.check(); val count = input.read(buffer)
                             if (count < 0) break
                             check(count > 0) { "Source stopped making progress." }
                             size += count; require(size <= requireNotNull(file.size)) { "Source grew while scanning." }
                             digest.update(buffer, 0, count)
+                            session.progress()
                         }
                     } finally { session.untrack(input) }
                 }

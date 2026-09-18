@@ -3,6 +3,26 @@
 No release candidate is approved. This file tracks evidence without combining
 historical results into a claim of one full passing run.
 
+Source-only public-repository preparation is tracked separately in
+[the publication checklist](docs/publication.md). Licensing and documentation
+work does not approve a binary release or change GitHub repository visibility.
+
+## Large-directory scan repair — 2026-09-18
+
+The aggregate 4 GiB cap has been removed on Android and Linux, with streaming
+hashes and progress-aware timeouts. Local real-byte scans above 4 GiB and scoped
+regressions are recorded in [the repair report](docs/validation/large-directory-scan-2026-09-18.md).
+After initially deferring, the user authorized installation: exact-artifact
+desktop replacement and Android overwrite/startup/data-preservation checks passed.
+The physical phone then completed an **All files** preview of the existing
+**1,238-file / 4.820 GiB** library: 1,238 missing, zero skipped or different.
+Android final confirmation and bulk transfer remain untested. The native QR
+popover originally did not display and was bypassed with a temporary private QR
+viewer. A subsequent installed repair replaces it with an inline QR image and
+makes About nonmodal. Targeted GTK tests and three installed-desktop settings
+open/cancel cycles passed; physical pointer/optical rescanning remain unverified.
+This is not a new full acceptance or server deployment.
+
 ## Latest existing-server rollout — 2026-09-18
 
 **The production schema-4 gap is closed.** The authorized backend upgrade and

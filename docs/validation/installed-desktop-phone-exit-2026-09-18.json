@@ -5,7 +5,7 @@
   "dirty_checkout": true,
   "release_build_report": "target/ci-reports/exit-ui-release-build-0918/result.json",
   "desktop_install": {
-    "path": "/home/user/.local/bin/mirelay-desktop",
+    "path": "~/.local/bin/mirelay-desktop",
     "sha256": "925eaae576c8f8d246e6fab45c73e920e53aa165e8f54aa3d3dda0c961b77714",
     "previous_sha256": "0a52bf02649bbb8d71eee6b61874604b0489e1a64d8aa9b7f72592239a01cc3f",
     "backup": "android/.local/phone-installed-e2e-20260918-dEB2pW/desktop-before",

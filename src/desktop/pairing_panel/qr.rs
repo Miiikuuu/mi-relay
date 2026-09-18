@@ -61,7 +61,8 @@ pub(super) fn payload(base: &str, code: &str, expires: u64, now: u64) -> Result<
 
 #[derive(Clone)]
 pub(super) struct InvitationQr {
-    pub button: gtk::MenuButton,
+    pub button: gtk::ToggleButton,
+    pub content: gtk::Box,
     area: gtk::DrawingArea,
     note: gtk::Label,
     matrix: Rc<RefCell<Option<QrCode>>>,
@@ -70,17 +71,20 @@ pub(super) struct InvitationQr {
 
 impl InvitationQr {
     pub fn new() -> Self {
-        let button = gtk::MenuButton::builder()
+        let button = gtk::ToggleButton::builder()
             .label("Show QR code")
             .sensitive(false)
             .valign(gtk::Align::Center)
             .build();
         button.set_widget_name("pairing-qr");
-        let popover = gtk::Popover::new();
         let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        content.set_visible(false);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
         let area = gtk::DrawingArea::builder()
             .content_width(300)
             .content_height(300)
+            .halign(gtk::Align::Center)
             .build();
         area.set_widget_name("pairing-qr-image");
         let matrix: Rc<RefCell<Option<QrCode>>> = Rc::new(RefCell::new(None));
@@ -119,10 +123,23 @@ impl InvitationQr {
             .wrap(true).max_width_chars(38).build();
         content.append(&area);
         content.append(&note);
-        popover.set_child(Some(&content));
-        button.set_popover(Some(&popover));
+        // Keep the QR in the setup window. A separate popup surface can fail
+        // to appear while its input grab still blocks the rest of the window.
+        // No reveal animation: showing/hiding must not wait for frame callbacks.
+        let weak_content = content.downgrade();
+        button.connect_toggled(move |button| {
+            if let Some(content) = weak_content.upgrade() {
+                content.set_visible(button.is_active());
+                button.set_label(if button.is_active() {
+                    "Hide QR code"
+                } else {
+                    "Show QR code"
+                });
+            }
+        });
         Self {
             button,
+            content,
             area,
             note,
             matrix,
@@ -133,7 +150,8 @@ impl InvitationQr {
     pub fn clear(&self) {
         self.expiry.set(0);
         self.matrix.borrow_mut().take();
-        self.button.popdown();
+        self.button.set_active(false);
+        self.content.set_visible(false);
         self.button.set_sensitive(false);
         self.area.queue_draw();
     }
@@ -170,7 +188,7 @@ impl InvitationQr {
                         {
                             data.borrow_mut().take();
                             expiry.set(0);
-                            button.popdown();
+                            button.set_active(false);
                             button.set_sensitive(false);
                             button.set_tooltip_text(Some(
                                 "Invitation expired. Replace the invitation to scan again.",
@@ -225,6 +243,7 @@ mod tests {
         let qr = InvitationQr::new();
         qr.set(base, code, expires);
         content.append(&qr.button);
+        content.append(&qr.content);
         window.set_content(Some(&content));
         let monitors = gtk::gdk::Display::default().unwrap().monitors();
         let monitor = (0..monitors.n_items())
@@ -240,7 +259,7 @@ mod tests {
         });
         window.present();
         let button = qr.button.clone();
-        glib::timeout_add_local_once(Duration::from_millis(500), move || button.popup());
+        glib::timeout_add_local_once(Duration::from_millis(500), move || button.set_active(true));
         let quit = main.clone();
         glib::timeout_add_local_once(
             Duration::from_secs(expires.saturating_sub(crate::fsutil::unix_now()).min(600)),
@@ -278,6 +297,66 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an isolated graphical session; real inline QR layout and controls"]
+    fn gtk_inline_qr_never_grabs_input_and_clear_hides_it() {
+        adw::init().unwrap();
+        let window = adw::Window::builder()
+            .default_width(640)
+            .default_height(600)
+            .build();
+        let group = adw::PreferencesGroup::new();
+        let row = adw::ActionRow::builder().title("Invitation").build();
+        let qr = InvitationQr::new();
+        row.add_suffix(&qr.button);
+        group.add(&row);
+        group.add(&qr.content);
+        let probe = gtk::Button::with_label("Check pairing");
+        let clicks = Rc::new(Cell::new(0));
+        let count = clicks.clone();
+        probe.connect_clicked(move |_| count.set(count.get() + 1));
+        group.add(&probe);
+        let scroll = gtk::ScrolledWindow::builder().child(&group).build();
+        window.set_content(Some(&scroll));
+        window.present();
+        let settle = || {
+            let until = std::time::Instant::now() + Duration::from_millis(200);
+            while std::time::Instant::now() < until {
+                glib::MainContext::default().iteration(false);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        };
+        qr.set(
+            "https://example.com",
+            &code(),
+            crate::fsutil::unix_now() + 60,
+        );
+        settle();
+        for _ in 0..3 {
+            qr.button.emit_clicked();
+            settle();
+            assert!(qr.button.is_active());
+            assert!(qr.content.is_mapped() && qr.area.is_mapped());
+            assert!(qr.area.width() >= 300 && qr.area.height() >= 300);
+            assert_eq!(
+                qr.area.native().unwrap(),
+                window.clone().upcast::<gtk::Native>()
+            );
+            assert!(probe.is_sensitive());
+            probe.emit_clicked();
+            qr.button.emit_clicked();
+            settle();
+            assert!(!qr.content.is_visible());
+        }
+        assert_eq!(clicks.get(), 3);
+        qr.button.set_active(true);
+        qr.clear();
+        assert!(!qr.button.is_active() && !qr.button.is_sensitive());
+        assert!(!qr.content.is_visible());
+        assert!(qr.matrix.borrow().is_none());
+        window.close();
+    }
+
+    #[test]
     #[ignore = "requires a graphical session; local GTK QR lifetime/expiry test"]
     fn gtk_qr_expiry_invalid_input_and_replacement() {
         adw::init().unwrap();
@@ -289,6 +368,8 @@ mod tests {
         assert!(qr.matrix.borrow().is_some());
         // An old invitation's timer must not hide a replacement invitation.
         qr.set("https://example.com", &code(), now + 3);
+        qr.button.set_active(true);
+        assert!(qr.content.is_visible());
         let main = glib::MainLoop::new(None, false);
         let quit = main.clone();
         let check = qr.clone();
@@ -301,6 +382,8 @@ mod tests {
         glib::timeout_add_local_once(Duration::from_secs(2), move || quit.quit());
         main.run();
         assert!(!qr.button.is_sensitive());
+        assert!(!qr.button.is_active());
+        assert!(!qr.content.is_visible());
         assert!(qr.matrix.borrow().is_none());
         qr.set(
             "https://example.com",

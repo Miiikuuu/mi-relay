@@ -1,6 +1,6 @@
 # Folder disconnection — production server upgrade
 
-The user authorized upgrading the existing `relay-vps` MiRelay backend. The upgrade
+The user authorized upgrading the existing MiRelay VPS backend (private host alias omitted). The upgrade
 completed on **2026-09-12 at 07:22:02 UTC / 15:22:02 Asia/Shanghai**. No phone or
 Linux application was installed during this server-only rollout.
 

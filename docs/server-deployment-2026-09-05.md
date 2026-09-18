@@ -3,7 +3,7 @@
 ## Current state
 
 The Rust backend and an independent HTTPS proxy are installed and enabled on
-`relay-vps`. After the user confirmed having no domain, a publicly trusted IP
+the test VPS (private host alias omitted). After the user confirmed having no domain, a publicly trusted IP
 certificate was issued and the public HTTPS path was tested. The phone has **not**
 yet been configured or tested against this deployment.
 

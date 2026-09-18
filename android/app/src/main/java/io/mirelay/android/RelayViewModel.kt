@@ -234,6 +234,7 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
         busy.value = true
         viewModelScope.launch {
             try { block() }
+            catch (_: android.os.OperationCanceledException) { error.value = "Source scan was cancelled or stopped making progress. No partial scan was accepted. Keep the source available and retry." }
             catch (e: IllegalArgumentException) { error.value = e.message ?: "Invalid input." }
             catch (_: Exception) { error.value = "Could not update local data. Check free space and try again." }
             finally { busy.value = false }

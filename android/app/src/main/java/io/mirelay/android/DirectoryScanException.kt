@@ -16,9 +16,8 @@ internal class DirectoryScanException private constructor(val userMessage: Strin
                 val more = if (unsupported.size > 1) " ${unsupported.size - 1} other unsupported file(s)." else ""
                 throw DirectoryScanException("Cannot scan \"${displayPath(file.relativePath)}\": $reason$more Check again after fixing the source. This scan queued no files.")
             }
-            if (files.sumOf { requireNotNull(it.size) } > 4L * 1024 * 1024 * 1024) {
-                throw DirectoryScanException("Directory scan exceeds 4 GiB. Choose a smaller directory. This scan queued no files.")
-            }
+            // Contents are streamed, not retained in memory. Bound individual
+            // files and inventory metadata, not the total size of a library.
         }
 
         // Show a bounded relative path, never a provider URI, document ID or raw

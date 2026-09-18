@@ -37,10 +37,13 @@ class DirectoryScanExceptionTest {
         val text = message(file(0), file(42, path = "valid.bin"), file(null), file(MAX_FILE_BYTES + 1))
         assertTrue(text.contains("2 other unsupported file(s).")); assertFalse(text.contains("valid.bin"))
     }
-    @Test fun fourGiBTotalLimitRemainsInclusive() {
+    @Test fun librariesAboveFourGiBAreAllowedWithoutRelaxingPerFileValidation() {
         val exact = List(40) { file(MAX_FILE_BYTES) } + file(96L * 1024 * 1024)
         DirectoryScanException.validate(exact)
-        assertTrue(message(*(exact + file(1)).toTypedArray()).contains("exceeds 4 GiB"))
+        DirectoryScanException.validate(exact + file(1))
+        DirectoryScanException.validate(List(AutoStore.MAX_ENTRIES) { file(MAX_FILE_BYTES) })
+        assertTrue(message(*(exact + file(0)).toTypedArray()).contains("empty (0 bytes)"))
+        assertTrue(message(*(exact + file(MAX_FILE_BYTES + 1)).toTypedArray()).contains("100 MiB"))
     }
     @Test fun displayedPathIsBoundedAndRetainsBothParentAndFilenameWithUnicodeIntact() {
         val path = "parent/" + "😀".repeat(300) + "/empty.bin"

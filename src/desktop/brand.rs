@@ -65,12 +65,26 @@ pub(super) fn folder_icon(kind: crate::bridge_registry::FolderKind) -> &'static 
 fn about_window(parent: &adw::ApplicationWindow) -> adw::Window {
     let dialog = adw::Window::builder()
         .transient_for(parent)
-        .modal(true)
+        .modal(false)
+        .destroy_with_parent(true)
         .title("About MiRelay")
         .default_width(480)
         .resizable(false)
         .build();
     dialog.add_css_class("mirelay");
+    let keys = gtk::EventControllerKey::new();
+    let weak_dialog = dialog.downgrade();
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk::gdk::Key::Escape {
+            if let Some(dialog) = weak_dialog.upgrade() {
+                dialog.close();
+            }
+            glib::Propagation::Stop
+        } else {
+            glib::Propagation::Proceed
+        }
+    });
+    dialog.add_controller(keys);
     let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
     content.set_margin_top(24);
     content.set_margin_bottom(24);
@@ -155,7 +169,8 @@ mod tests {
             .filter_map(|widget| widget.downcast::<adw::Window>().ok())
             .find(|window| window.title().as_deref() == Some("About MiRelay"))
             .expect("brand button opens About");
-        assert!(dialog.is_modal());
+        assert!(!dialog.is_modal(), "About must not block the Folder window");
+        assert!(dialog.must_destroy_with_parent());
         let content = dialog.content().unwrap().downcast::<gtk::Box>().unwrap();
         let picture = content
             .first_child()

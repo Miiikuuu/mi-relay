@@ -67,6 +67,7 @@ class FileImporter(private val resolver: ContentResolver, private val store: Rel
                                 require(size <= MAX_FILE_BYTES) { "Each file must be at most 100 MiB." }
                                 output.write(buffer, 0, count)
                                 digest.update(buffer, 0, count)
+                                session?.progress()
                             }
                             require(size > 0) { "Empty files are not supported by this server." }
                             output.fd.sync()

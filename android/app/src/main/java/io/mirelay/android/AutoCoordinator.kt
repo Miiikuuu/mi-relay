@@ -31,7 +31,7 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
         val granted = resolver.persistedUriPermissions.any { it.uri == tree && it.isReadPermission }
         try {
             resolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            return AutoSession().use { session ->
+            return AutoSession.directoryScan().use { session ->
                 val snapshot = reader.snapshot(tree, session, true)
                 val selection = filter.select(snapshot.files)
                 val files = reader.hashes(tree, selection.files, session)
@@ -49,7 +49,7 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
     }
     @Synchronized internal fun confirmDirectory(folderId: String, tree: Uri, previewId: String, unmetered: Boolean, filter: FileFilter = FileFilter.ALL) {
         val folder = requireNotNull(store.folder(folderId))
-        val source = AutoSession().use { session ->
+        val source = AutoSession.directoryScan().use { session ->
             val selection = filter.select(reader.snapshot(tree, session, true).files)
             val files = reader.hashes(tree, selection.files, session)
             val remote = directory.state(folder, store.token(folderId))

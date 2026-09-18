@@ -8,7 +8,7 @@
 
 ## 实际环境：只读检查
 
-- `relay-vps`：MiRelay 和 HTTPS 代理均 active，检查前后 PID 分别保持 24271、22966，
+- 测试 VPS（主机别名已隐去）：MiRelay 和 HTTPS 代理均 active，检查前后 PID 分别保持 24271、22966，
   `NRestarts=0`，后端二进制哈希未变，loopback `/healthz` 成功。
 - 服务端数据库 schema **2**，integrity 为 `ok`、外键错误为 0。本次快照有 **1 个 Folder、
   2 个待接收文件、8 个已确认文件**；没有读取文件正文、发送回执或清理队列。

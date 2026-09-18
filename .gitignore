@@ -16,3 +16,6 @@
 *.p12
 *.pfx
 *.pk8
+# Original design deliveries and private audit input are not distribution assets.
+/MiRelay-design-kit-v2.zip
+/MiRelay_Release_Readiness_Audit_2026-09-13.md

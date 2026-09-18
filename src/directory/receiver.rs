@@ -24,7 +24,6 @@ use std::{
 };
 
 pub const MAX_FILE: u64 = 100 * 1024 * 1024;
-const MAX_SCAN_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const DIR_FLAGS: OFlag = OFlag::O_RDONLY
     .union(OFlag::O_DIRECTORY)
     .union(OFlag::O_NOFOLLOW)
@@ -98,9 +97,8 @@ impl Root {
     pub fn inventory(&self) -> Result<Inventory> {
         let mut entries = Vec::new();
         let mut budget = ScanBudget {
-            bytes: MAX_SCAN_BYTES,
             nodes: MAX_ENTRIES * 2,
-            started: std::time::Instant::now(),
+            last_progress: std::time::Instant::now(),
         };
         scan(&self.file, "", &mut entries, &mut budget)?;
         entries.sort_by(|a, b| a.path.cmp(&b.path));
@@ -127,6 +125,13 @@ fn regular(parent: &File, name: &str) -> Result<File> {
     Ok(file)
 }
 fn digest(file: &mut File, limit: u64) -> Result<(String, u64)> {
+    digest_with_progress(file, limit, || Ok(()))
+}
+fn digest_with_progress(
+    file: &mut File,
+    limit: u64,
+    mut progress: impl FnMut() -> Result<()>,
+) -> Result<(String, u64)> {
     let before = file.metadata()?;
     ensure!(
         before.is_file() && before.len() <= limit,
@@ -137,6 +142,7 @@ fn digest(file: &mut File, limit: u64) -> Result<(String, u64)> {
     let mut size = 0u64;
     loop {
         let count = file.read(&mut buf)?;
+        progress()?;
         if count == 0 {
             break;
         }
@@ -165,9 +171,18 @@ fn digest(file: &mut File, limit: u64) -> Result<(String, u64)> {
     Ok((hex::encode(hash.finalize()), size))
 }
 struct ScanBudget {
-    bytes: u64,
     nodes: usize,
-    started: std::time::Instant,
+    last_progress: std::time::Instant,
+}
+impl ScanBudget {
+    fn progress(&mut self) -> Result<()> {
+        ensure!(
+            self.last_progress.elapsed().as_secs() < 90,
+            "Directory scan stopped making progress; no partial inventory was accepted."
+        );
+        self.last_progress = std::time::Instant::now();
+        Ok(())
+    }
 }
 fn scan(
     parent: &File,
@@ -178,10 +193,11 @@ fn scan(
     let before = parent.metadata()?;
     for entry in fs::read_dir(format!("/proc/self/fd/{}", parent.as_raw_fd()))? {
         ensure!(
-            budget.nodes > 0 && budget.started.elapsed().as_secs() < 90,
+            budget.nodes > 0,
             "Directory scan budget exceeded; no partial inventory was accepted."
         );
         budget.nodes -= 1;
+        budget.progress()?;
         let name = entry?
             .file_name()
             .into_string()
@@ -205,12 +221,13 @@ fn scan(
                 kind == SFlag::S_IFREG && entries.len() < MAX_ENTRIES,
                 "Symlink, special file or excessive directory entries."
             );
-            let (sha256, size) = digest(&mut regular(parent, &name)?, MAX_FILE.min(budget.bytes))?;
-            budget.bytes -= size;
+            let (sha256, size) =
+                digest_with_progress(&mut regular(parent, &name)?, MAX_FILE, || budget.progress())?;
             entries.push(InventoryEntry { path, sha256, size });
         }
     }
     let after = parent.metadata()?;
+    budget.progress()?;
     ensure!(
         (
             before.mtime(),
@@ -726,6 +743,65 @@ pub(super) fn save(path: &Path, value: &impl Serialize) -> Result<()> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    #[test]
+    fn inventory_over_four_gib_streams_all_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Sparse fixtures consume no multi-GiB disk allocation, but every byte
+        // still passes through the real 64 KiB hashing loop.
+        for index in 0..43 {
+            File::create(tmp.path().join(format!("image-{index:02}.bin")))
+                .unwrap()
+                .set_len(MAX_FILE)
+                .unwrap();
+        }
+        let inventory = Root::open(tmp.path()).unwrap().inventory().unwrap();
+        assert_eq!(inventory.entries.len(), 43);
+        assert_eq!(
+            inventory.entries.iter().map(|e| e.size).sum::<u64>(),
+            43 * MAX_FILE
+        );
+        assert!(
+            inventory
+                .entries
+                .iter()
+                .all(|e| e.sha256 == inventory.entries[0].sha256)
+        );
+        assert_eq!(
+            fs::metadata(tmp.path().join("image-00.bin")).unwrap().len(),
+            MAX_FILE
+        );
+    }
+
+    #[test]
+    fn stalled_inventory_cannot_be_revived_by_progress() {
+        let mut budget = ScanBudget {
+            nodes: 1,
+            last_progress: std::time::Instant::now() - std::time::Duration::from_secs(91),
+        };
+        assert!(budget.progress().is_err());
+        assert!(budget.progress().is_err());
+    }
+
+    #[test]
+    fn inventory_keeps_single_file_and_node_limits() {
+        let tmp = tempfile::tempdir().unwrap();
+        File::create(tmp.path().join("large.bin"))
+            .unwrap()
+            .set_len(MAX_FILE + 1)
+            .unwrap();
+        let root = Root::open(tmp.path()).unwrap();
+        assert!(
+            root.inventory()
+                .unwrap_err()
+                .to_string()
+                .contains("File exceeds")
+        );
+        let mut budget = ScanBudget {
+            nodes: 0,
+            last_progress: std::time::Instant::now(),
+        };
+        assert!(scan(&root.file, "", &mut Vec::new(), &mut budget).is_err());
+    }
     fn crash_point(phase: u8, existing: bool) {
         let tmp = tempfile::tempdir().unwrap();
         let dst = tmp.path().join("dst");

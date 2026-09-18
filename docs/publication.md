@@ -1,9 +1,10 @@
 # Source publication checklist — 2026-09-18
 
 Scope: prepare the repository for public **experimental source** access, not
-approve a stable release, produce a signed APK, or deploy a server. No public
-visibility change, history rewrite, commit, push or release/tag creation has
-been performed in this preparation pass.
+approve a stable release, produce a signed APK, or deploy a server. The initial
+preparation was local only. The owner subsequently authorized a private backup,
+history sanitization and a lease-protected force push; see the continuation
+below. No public visibility change or release/tag creation is claimed here.
 
 ## Prepared locally
 
@@ -32,7 +33,7 @@ separately, since an unstaged new file is outside its default scope. All 31
 tracked raster images were checked for EXIF/common descriptive metadata and
 produced no candidates; this is not a guarantee against information in pixels.
 
-The reachable-history check reports **two historical blobs with personal home
+The initial reachable-history check reported **two historical blobs with personal home
 paths**. A separate targeted review also found **four historical blobs containing
 a private SSH host alias**. The reviewed patterns found no private-key headers
 or common GitHub/AWS access-key strings. Long literal credential candidates were
@@ -47,8 +48,8 @@ python3 scripts/audit-public.py
 python3 scripts/audit-public.py --history
 ```
 
-The second command currently returns **1** because old paths remain in history.
-It must not be reported as a pass. Output contains rule/location information,
+Before sanitization the second command returned **1** because old paths remained
+in history; that result was not counted as a pass. Output contains rule/location information,
 not the matched credential contents. Untracked/ignored files, LFS payloads,
 remote-only refs and image metadata require separate review.
 
@@ -65,19 +66,41 @@ These do not include a new Android/device acceptance, fresh deployment test,
 release signing run, or a hosted GitHub Actions run. See
 [release validation status](../RELEASE_VALIDATION.md).
 
-## Decisions/actions still required before publication
+## Authorized history sanitization
 
-1. Decide whether to retain the old private aliases/paths in public history or
-   authorize history sanitization. Sanitization changes commit IDs and needs a
-   private recovery backup plus an explicitly authorized remote update; it must
-   not be a silent force push.
-2. Commit only reviewed files, push the approved candidate, and inspect its real
-   GitHub CI results. Recheck the exact candidate rather than treating this dirty
-   working tree as a frozen release.
-3. Use an authenticated GitHub owner session to verify and change repository
+The owner explicitly authorized backup, sanitization and the remote history
+update. A private directory outside the repository holds a verified complete Git
+backup, an all-ref bundle, a 350-file working-tree archive and the commit mapping.
+No private backup path, source archive or signing material is committed here.
+
+An isolated repository rewrote ten commits, preserving author/committer data,
+messages and topology. Only six historical document blobs changed: personal home
+prefixes and the private SSH alias became generic examples. Every changed blob
+was checked against the exact intended replacements; code and artwork remained
+byte-identical in every corresponding commit. The latest tree was also identical
+before and after rewriting, preserving the already-reviewed local fixes.
+
+The sanitized candidate's 566 reachable blobs passed the bounded history scanner.
+An additional check of all reachable objects found none of the exact reviewed
+personal-path, SSH-alias, production-IP or device-serial patterns. Script tests
+(45), deployment tests (14) and workflow syntax checks were rerun and passed.
+This does not expand the earlier scan's security guarantees or acceptance scope.
+
+The push is scoped to `main` with an explicit expected old remote SHA, never a
+mirror push. It must fail if the remote branch changes in the meantime. Old
+objects remain recoverable in private local backups/reflogs. A rewritten branch
+does not prove GitHub has purged cached commits, hidden refs or other clones;
+no server-side erasure is claimed. Historical report hashes identify earlier
+evidence, not the rewritten current candidate.
+
+## Actions still required before public visibility
+
+1. Verify the approved pushed candidate and inspect its real GitHub CI results.
+   A local test pass does not establish a hosted CI pass.
+2. Use an authenticated GitHub owner session to verify and change repository
    visibility, enable a private vulnerability-reporting channel if available,
    and review branch protection. The unauthenticated API returned 404, which does
    not prove the repository's visibility or the user's administration rights.
    No authenticated repository-administration client was available locally.
-4. Keep binary releases separate: signing identity/backups, packaged dependency
+3. Keep binary releases separate: signing identity/backups, packaged dependency
    notices and remaining acceptance gates still need their documented review.

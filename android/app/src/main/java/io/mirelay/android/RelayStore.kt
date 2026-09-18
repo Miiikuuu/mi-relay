@@ -11,9 +11,10 @@ import java.io.File
 import java.util.UUID
 
 /** All database/filesystem methods run on an IO or WorkManager thread. */
-class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()) : SQLiteOpenHelper(context, "relay.db", null, 6) {
+class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()) : SQLiteOpenHelper(context, "relay.db", null, 7) {
     private val root = File(context.noBackupFilesDir, "outgoing")
-    internal val photoPreviews = PhotoPreviewCache(File(context.cacheDir, "photo-previews"))
+    private val cleanupRoot = File(context.noBackupFilesDir.canonicalFile, "outgoing")
+    internal val photoPreviews = PhotoPreviewCache(File(context.cacheDir.canonicalFile, "photo-previews"))
     private val mutableFolders = MutableStateFlow<List<Folder>>(emptyList())
     private val mutableTransfers = MutableStateFlow<List<Transfer>>(emptyList())
     private val refreshLock = Any()
@@ -30,9 +31,10 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
         AutoStore.createTables(db)
         DirectorySyncStore.createTables(db)
         createCategoryColumns(db)
+        db.execSQL("ALTER TABLE folders ADD COLUMN exit_phase TEXT")
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        check(oldVersion in 1..5 && newVersion == 6) { "Unsupported database version; existing data was not changed." }
+        check(oldVersion in 1..6 && newVersion == 7) { "Unsupported database version; existing data was not changed." }
         if (oldVersion == 1) {
             db.execSQL("ALTER TABLE transfers ADD COLUMN auto_revision TEXT")
             db.execSQL("ALTER TABLE transfers ADD COLUMN auto_unmetered INTEGER NOT NULL DEFAULT 0")
@@ -44,6 +46,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
         }
         if (oldVersion < 4) DirectorySyncStore.createTables(db)
         if (oldVersion < 5) createCategoryColumns(db)
+        if (oldVersion < 7) db.execSQL("ALTER TABLE folders ADD COLUMN exit_phase TEXT")
         // Version 6 is a semantic migration: older apps must not reopen this
         // database and turn disconnect_pending back into ready via handshake.
     }
@@ -128,9 +131,10 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     }
 
     internal fun finishDisconnect(id: String) {
+        require(folder(id)?.exitPhase == null) { "Finish clean exit before forgetting its receipt credential." }
         check(writableDatabase.update("folders", ContentValues().apply {
             put("pairing_state", "disconnected"); put("token", ""); putNull("verification")
-        }, "id=? AND pairing_state IN ('disconnect_pending','disconnected')", arrayOf(id)) == 1)
+        }, "id=? AND exit_phase IS NULL AND pairing_state IN ('disconnect_pending','disconnected')", arrayOf(id)) == 1)
         refresh()
     }
 
@@ -141,6 +145,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
         db.beginTransaction()
         try {
             val current = requireNotNull(folder(id)) { "Folder no longer exists." }
+            require(current.exitPhase == null || current.exitPhase == "complete") { "Both devices must finish clean exit before removing its receipt." }
             require(current.pairingState == "disconnected" || (!current.scoped && current.pairingState == "disconnect_pending")) {
                 "Wait for server disconnection confirmation before removing this Folder."
             }
@@ -164,6 +169,39 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     fun directory(id: String): File {
         require(UUID.fromString(id).toString() == id) { "Invalid transfer ID." }
         return File(root, id)
+    }
+    internal fun cleanupDirectory(id: String): File {
+        val candidate = directory(id).canonicalFile
+        require(candidate == File(cleanupRoot, id)) { "Private staging path has been redirected." }
+        return candidate
+    }
+    internal fun cleanupTransfers(folder: String): Set<String> {
+        refresh()
+        val known = transfers.value.associate { it.id to it.folderId }
+        val owned = known.filterValues { it == folder }.keys.toMutableSet()
+        require(root.canonicalFile == cleanupRoot) { "Private staging root has been redirected." }
+        if (!cleanupRoot.exists()) return owned
+        for (entry in checkNotNull(cleanupRoot.listFiles())) {
+            val directory = cleanupDirectory(entry.name)
+            require(directory.isDirectory) { "Unexpected private staging entry." }
+            val marker = File(directory, "folder-owner")
+            if (marker.exists()) {
+                require(marker.canonicalFile == marker.absoluteFile && marker.isFile && marker.length() == 36L) { "Invalid staging ownership marker; review required." }
+                val owner = marker.readText(Charsets.US_ASCII)
+                require(UUID.fromString(owner).toString() == owner && (known[entry.name] == null || known[entry.name] == owner)) { "Inconsistent staging ownership." }
+                if (owner == folder) owned.add(entry.name)
+            } else if (known[entry.name] == null) {
+                require(directory.listFiles()!!.none {
+                    // Legacy local removal intentionally kept lock inodes.
+                    // An empty regular lock contains no transfer data and must
+                    // stay in place, not block unrelated Folder retirement.
+                    val emptyLock = it.name == "resume.json.lock" &&
+                        !java.nio.file.Files.isSymbolicLink(it.toPath()) && it.isFile && it.length() == 0L
+                    !emptyLock && (it.name == "payload" || it.name == "payload.part" || it.name.startsWith("resume.json"))
+                }) { "Old unowned staging data requires review before clean exit can finish." }
+            }
+        }
+        return owned
     }
     fun addTransfer(id: String, folder: String, name: String, size: Long) {
         require(size in 1..MAX_FILE_BYTES)
@@ -201,7 +239,7 @@ class RelayStore(context: Context, private val vault: TokenCipher = TokenVault()
     }
     private fun Cursor.str(column: String) = getString(getColumnIndexOrThrow(column))
     private fun Cursor.long(column: String) = getLong(getColumnIndexOrThrow(column))
-    private fun Cursor.folder() = Folder(str("id"), str("name"), str("server"), long("insecure") != 0L, str("pairing_state"), str("verification"), FolderKind.fromKey(str("kind")))
+    private fun Cursor.folder() = Folder(str("id"), str("name"), str("server"), long("insecure") != 0L, str("pairing_state"), str("verification"), FolderKind.fromKey(str("kind")), str("exit_phase"))
     private fun Cursor.transfer() = Transfer(str("id"), str("folder_id"), str("name"), long("size"), TransferStatus.valueOf(str("status")), long("uploaded"), str("error"), str("delivery_id"), str("work_id"), long("created_at"), str("auto_revision"), long("auto_unmetered") != 0L,
         str("relative_path"), getColumnIndexOrThrow("source_version").let { if (isNull(it)) null else getLong(it) }, str("source_sha256"), long("received") != 0L, long("conflict") != 0L, long("superseded") != 0L)
 }

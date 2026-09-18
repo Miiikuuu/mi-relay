@@ -1,0 +1,225 @@
+{
+  "date": "2026-09-14",
+  "status": "first_native_visual_pass_verified_locally_not_full_design_acceptance",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_worktree": true,
+  "design_archive_sha256": "52ff40282f2676b0dcc314dbd12a49baa114e2e71c7318ec2bd954fff05cc383",
+  "design_archive_checksums": "All 62 listed payloads passed SHA256SUMS verification",
+  "scope": "Native Linux and Android presentation; no transport, pairing authorization, persisted state schema, production data, release signing or deployment changes.",
+  "android": {
+    "unit_tests_passed": 92,
+    "skipped": 1,
+    "failed": 0,
+    "lint_errors": 0,
+    "lint_existing_warnings": 17,
+    "instrumentation_apk": "compiled only; not installed or run",
+    "debug_apk_sha256": "52788536c29dc904aa7860668c8128929c19130fb01087a251fd767fcacd5e9b",
+    "debug_certificate_sha256": "cd032d879b4ee4dda9c8cfc73742eb8417993e97cf141de1832a752aec3e84a1"
+  },
+  "album_probe": {
+    "backend": "Broadway",
+    "renderer": "GskBroadwayRenderer",
+    "profile": "debug",
+    "entries": 10000,
+    "distinct_images": 32,
+    "bound_picture_widgets": 97,
+    "settled_idle_sample_seconds": 3.002926392,
+    "settled_idle_paints": 0,
+    "settled_idle_cpu_percent_one_core": 0,
+    "clear_repopulate_cycles": 40,
+    "limitations": "Synthetic data in a dedicated graphical session; CPU measures the test process only, not the browser. Not release GPU/FPS/battery acceptance. Host compilation may overlap; no cross-version speedup claim."
+  },
+  "screenshots": [
+    {
+      "path": "dev/frontend/.local/ui-v2-album/album-square.png",
+      "sha256": "2f56e0b0df13c40404bc9cc4c6c6b4dc090d7c13183ba758a61a150ff5003d75"
+    },
+    {
+      "path": "dev/frontend/.local/ui-v2-check/narrow-final.png",
+      "sha256": "69532cfa0bc6e0ac9a8bac8c1f992bd414ca67e39890db27dec6f760888dcc74"
+    }
+  ],
+  "pending": [
+    "Animated light bands and global motion settings",
+    "Full mobile prototype layout and physical-device UI acceptance",
+    "Narrow desktop sidebar collapse",
+    "Real desktop GPU and device power measurements",
+    "Minimum GTK 4.6 runtime visual acceptance"
+  ],
+  "evidence": [
+    {
+      "label": "ui-v2-rust-handoff",
+      "result_sha256": "d4274eb4fc343cd3460850c69bbaa9a4bbc05b31d6cf9b146f4f0cccd64eec92",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "a654c093721d73489878c79de1150f857e7848a841d53bae9a17df9ef0419701",
+          "elapsed_seconds": 34.801,
+          "rust_counts": {
+            "passed": 222,
+            "failed": 0,
+            "ignored": 18
+          }
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-fixtures",
+      "result_sha256": "05cb0712bd74a45bd35dd383265d765b904cad465bda73d4e286858491cc659f",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "bd67991e0f2044d7c45d686ca18ef2431e3ee3ec8d1aa7be49cea3c469e5aa8d",
+          "elapsed_seconds": 0.867,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-icon-tests",
+      "result_sha256": "3b5bf8d785579e779497050c65cd8a67bb6ea192e4c05d57d79391522df7e64c",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "b864204ffac43927cdef3353b4a59c84692d79964930fcfa631896d782d87d11",
+          "elapsed_seconds": 0.064,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-gtk-handoff",
+      "result_sha256": "19c28bcf7856ccd490c128f5534b1501a9675985bfd168102ff0b94bd773a63e",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "1b828925d41168d83373104f716de66fb7512793bb220a39e206873d5827c9dc",
+          "elapsed_seconds": 5.329,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-brand-themes",
+      "result_sha256": "36ff7bc0d72579d451d8b0a2f7b834571daafca7935bfa8c695ecc75c3bcd49b",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "45b40ac86a28711be8cf7d504894a755519b5c8539863f0d3c42baa95522c493",
+          "elapsed_seconds": 1.868,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-sidebar-square",
+      "result_sha256": "8e9ca409a6b86e015d527ef847d1c26f00d91451d95aa24d466d44b7644cb733",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "22868b6f20bc5d0b658a2ceaec44f72aa60733cebec84c75e650663845239775",
+          "elapsed_seconds": 0.465,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-files-square",
+      "result_sha256": "36251b900ec1ffa77463ff085284465ec238fa52711abc18922451b1f9dc2dfc",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "096887085f5b7e31d225e38a9b676637bc53e36a23cb607eb5aeb11386e6c376",
+          "elapsed_seconds": 0.867,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-album-isolated",
+      "result_sha256": "056640380f5f5976f38d1ee0dd9bcf0d707a705a25c4f548fc6cd835f7359b1c",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "a65377b5dbf80f87b91599d17454ea92066e844f87288977744221a924ed2fd7",
+          "elapsed_seconds": 31.045,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-android-fixed",
+      "result_sha256": "f106861edef5e5a7f8a1c0c62cca8d27b989beb6fbd0b46546a9a815fd44e42f",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e1748ef90d67b1c7222adaf46f2a627d715bf6ff92071266eb2ef635148352b6",
+          "elapsed_seconds": 60.146,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-android-icons",
+      "result_sha256": "090e7cefc8ffeecfddf253e7fe09d0f512f29f661028f292da45b5677cb38b7e",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "4a789279fc0c2cefbd3a7eb298c630cfaed4ff1ef5afc6787ab186c101a62386",
+          "elapsed_seconds": 148.941,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "ui-v2-android-apk",
+      "result_sha256": "7df6c3134efad987aa297f5af885c21ee0fad547432cbee8f6ab2f970b579e8c",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "2feb1dad058f8ad2667e2c3fdcf3e34eed8cb7ec28432a59abab966d7458b942",
+          "elapsed_seconds": 0.415,
+          "rust_counts": null
+        }
+      ]
+    }
+  ]
+}

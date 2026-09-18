@@ -29,10 +29,14 @@ class RehearsalTests(unittest.TestCase):
     def test_default_and_explicit_upgrade_versions(self):
         paths = ["--old-binary", "/old", "--new-binary", "/new"]
         args = rehearsal.parse_args(paths)
-        self.assertEqual((args.old_schema, args.new_schema), (3, 4))
+        self.assertEqual((args.old_schema, args.new_schema), (4, 5))
         args = rehearsal.parse_args(paths + ["--old-schema", "1", "--new-schema", "2"])
         self.assertEqual((args.old_schema, args.new_schema), (1, 2))
-        for extra in (["--new-schema", "2"], ["--old-schema", "4"], ["--new-schema", "1"]):
+        for old, new in ((2, 3), (3, 4), (4, 5), (1, 5)):
+            args = rehearsal.parse_args(paths + ["--old-schema", str(old), "--new-schema", str(new)])
+            self.assertEqual((args.old_schema, args.new_schema), (old, new))
+        for extra in (["--new-schema", "2"], ["--old-schema", "5"], ["--new-schema", "1"],
+                      ["--new-schema", "4"], ["--new-schema", "6"]):
             with self.subTest(extra=extra), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 rehearsal.parse_args(paths + extra)
 
@@ -93,6 +97,31 @@ class RehearsalTests(unittest.TestCase):
                                  "INSERT INTO child VALUES(42);")
             with self.assertRaises(RuntimeError):
                 rehearsal.database_snapshot(path)
+
+    def test_schema_five_preserves_closed_and_open_folders_and_adds_empty_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.sqlite3"
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("CREATE TABLE folders(id TEXT PRIMARY KEY, credential BLOB, disconnected INTEGER);"
+                                 "INSERT INTO folders VALUES('open',x'010203',0),('closed',x'040506',1);"
+                                 "PRAGMA user_version=4;")
+            before = rehearsal.database_snapshot(path)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("PRAGMA user_version=5;")
+            with self.assertRaises(RuntimeError):
+                rehearsal.require_retained(before, rehearsal.database_snapshot(path), 5)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("CREATE TABLE folder_exits(folder_id TEXT PRIMARY KEY REFERENCES folders(id),"
+                                 "server_cleaned INTEGER, sender_cleaned INTEGER, receiver_cleaned INTEGER);")
+            rehearsal.require_retained(before, rehearsal.database_snapshot(path), 5)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("INSERT INTO folder_exits VALUES('open',0,0,0);")
+            with self.assertRaises(RuntimeError):
+                rehearsal.require_retained(before, rehearsal.database_snapshot(path), 5)
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("DELETE FROM folder_exits; UPDATE folders SET disconnected=1 WHERE id='open';")
+            with self.assertRaises(RuntimeError):
+                rehearsal.require_retained(before, rehearsal.database_snapshot(path), 5)
 
 
 if __name__ == "__main__":

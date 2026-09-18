@@ -7,7 +7,9 @@ fn main() {
     }
     let manifest = "packaging/linux/mirelay.gresource.xml";
     println!("cargo:rerun-if-changed={manifest}");
-    println!("cargo:rerun-if-changed=assets/brand/MiRelay-brand-kit-v1/icons/png");
+    println!("cargo:rerun-if-changed=assets/ui/v2/gtk-icons");
+    println!("cargo:rerun-if-changed=assets/ui/v2/brand/mirelay-wordmark-transparent.png");
+    println!("cargo:rerun-if-changed=assets/ui/v2/brand/icons");
     println!(
         "cargo:rerun-if-changed=assets/brand/MiRelay-brand-kit-v1/wordmark/mirelay-wordmark.png"
     );
@@ -16,6 +18,7 @@ fn main() {
     let status = Command::new("glib-compile-resources")
         .arg(manifest)
         .arg("--sourcedir=assets/brand/MiRelay-brand-kit-v1")
+        .arg("--sourcedir=assets/ui/v2")
         .arg("--target")
         .arg(output)
         .status()

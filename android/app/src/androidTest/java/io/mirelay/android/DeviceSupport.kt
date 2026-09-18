@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkManager
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -35,10 +36,36 @@ object DeviceSupport {
     }
     fun reset() {
         guard()
-        WorkManager.getInstance(app).cancelAllWork().result.get(15, TimeUnit.SECONDS)
-        app.store.writableDatabase.execSQL("DELETE FROM transfers")
-        app.store.writableDatabase.execSQL("DELETE FROM folders")
-        app.store.refresh()
+        synchronized(app.auto) {
+            WorkManager.getInstance(app).cancelAllWork().result.get(15, TimeUnit.SECONDS)
+            // Cancellation acknowledgement alone does not drain a staging writer.
+            FolderWorkGate.clean {
+                app.store.writableDatabase.execSQL("DELETE FROM transfers")
+                app.store.writableDatabase.execSQL("DELETE FROM folders")
+                app.store.refresh()
+            }
+        }
+    }
+    fun image(folder: String, name: String): String {
+        guard()
+        return FolderWorkGate.work {
+            app.store.requireConnectionOpen(folder)
+            val id = UUID.randomUUID().toString()
+            val dir = app.store.directory(id)
+            check(dir.mkdirs())
+            // Match FileImporter: ownership precedes payload and survives a reset
+            // or process death which removes/loses the queue row. Never weaken
+            // production's refusal to clean genuinely unowned staging.
+            FileOutputStream(File(dir, "folder-owner")).use {
+                it.write(folder.toByteArray(Charsets.US_ASCII)); it.fd.sync()
+            }
+            val payload = File(dir, "payload")
+            app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { input ->
+                FileOutputStream(payload).use { output -> input.copyTo(output); output.fd.sync() }
+            }
+            app.store.addTransfer(id, folder, name, payload.length())
+            id
+        }
     }
     fun folder(name: String = "QA Linux", url: String = server, secret: String = token) =
         app.store.saveFolder(null, name, url, secret, url.startsWith("http:"))

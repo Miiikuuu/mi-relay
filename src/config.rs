@@ -28,6 +28,9 @@ pub enum ConnectionState {
     Connected,
     DisconnectPending,
     Disconnected,
+    ExitPending,
+    ExitLocalCleaned,
+    Exited,
 }
 impl ConnectionState {
     pub fn is_connected(&self) -> bool {

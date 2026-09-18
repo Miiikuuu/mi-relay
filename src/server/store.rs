@@ -21,7 +21,7 @@ pub use crate::storage::validate_sha256;
 const DATABASE_NAME: &str = "mirelay-server.sqlite3";
 const CONTENT_DIR_NAME: &str = "content";
 const UPLOADS_DIR_NAME: &str = "uploads";
-const SERVER_SCHEMA_VERSION: i64 = 4;
+const SERVER_SCHEMA_VERSION: i64 = 5;
 const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -154,7 +154,7 @@ impl ServerStore {
                     .commit()
                     .context("failed to commit server database schema")?;
             }
-            1 | 2 | 3 | SERVER_SCHEMA_VERSION => {}
+            1 | 2 | 3 | 4 | SERVER_SCHEMA_VERSION => {}
             other => bail!(
                 "unsupported server database schema version {other}; expected {SERVER_SCHEMA_VERSION}"
             ),
@@ -191,6 +191,17 @@ impl ServerStore {
                 connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute_batch("ALTER TABLE folders ADD COLUMN disconnected INTEGER NOT NULL DEFAULT 0 CHECK(disconnected IN (0,1)); PRAGMA user_version=4;")?;
             transaction.commit()?;
+        }
+        if version < 5 {
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                CREATE TABLE folder_exits (
+                    folder_id TEXT PRIMARY KEY REFERENCES folders(id),
+                    server_cleaned INTEGER NOT NULL DEFAULT 0 CHECK(server_cleaned IN (0,1)),
+                    sender_cleaned INTEGER NOT NULL DEFAULT 0 CHECK(sender_cleaned IN (0,1)),
+                    receiver_cleaned INTEGER NOT NULL DEFAULT 0 CHECK(receiver_cleaned IN (0,1)));
+                PRAGMA user_version=5; COMMIT;",
+            )?;
         }
         harden_database_permissions(&self.database_path)?;
         Ok(())
@@ -256,6 +267,7 @@ impl ServerStore {
         validate_delivery_metadata(&delivery, self.max_file_size)?;
 
         let _content_lock = lock_library(&self.content_dir)?;
+        super::exit::require_device_open(&self.connection()?, device_id)?;
         if let Some(existing) = self.get_delivery(device_id, &id)? {
             if existing.original_name != original_name
                 || existing.size != inspection.size

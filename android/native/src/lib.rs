@@ -70,6 +70,16 @@ pub extern "system" fn Java_io_mirelay_android_NativeBridge_pairing(
             value["allow_insecure_http"].as_bool().unwrap_or(false),
         )
         .map_err(|e| e.to_string())?;
+        if let Some(action @ ("exit_status" | "clean_exit" | "ack_exit")) = value["action"].as_str()
+        {
+            let status = match action {
+                "exit_status" => client.exit_status(),
+                "clean_exit" => client.clean_exit(),
+                _ => client.acknowledge_exit(),
+            }
+            .map_err(|e| e.to_string())?;
+            return Ok(json!({"result": status}));
+        }
         let info = match value["action"].as_str() {
             Some("claim") => client
                 .claim(

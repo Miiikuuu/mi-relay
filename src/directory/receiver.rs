@@ -351,6 +351,10 @@ impl Receiver {
         );
         let state = state_root.path;
         let lock = StateStore::new(state.join("receiver.json")).lock_exclusive()?;
+        ensure!(
+            !state.join("retired.json").exists(),
+            "This receiver has exited; create a new Folder to reconnect."
+        );
         let root_lock = File::from(openat(
             &root.file,
             ".mirelay-receiver.lock",

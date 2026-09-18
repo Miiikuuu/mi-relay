@@ -49,6 +49,11 @@ def adb(*args, **kwargs):
 
 
 class Proxy(http.server.BaseHTTPRequestHandler):
+    # Match the relay's persistent HTTP/1.1 connections. HTTP/1.0 forces a
+    # fresh emulator NAT connection for every tus request and can dominate
+    # small-file tests; all responses below have explicit Content-Length.
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *_):
         pass
 

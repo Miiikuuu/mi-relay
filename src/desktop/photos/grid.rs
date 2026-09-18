@@ -1,5 +1,64 @@
 use super::*;
 
+// GridView measures rows for the allocated column width. AspectFrame only fits
+// its child into an already allocated row and can leave 128 px-high letterboxes
+// when columns are wider. Request height-for-width, without resize timers.
+mod square {
+    use gtk::subclass::prelude::*;
+    use gtk::{glib, prelude::*};
+
+    #[derive(Default)]
+    pub struct Square;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for Square {
+        const NAME: &'static str = "MiRelayPhotoSquare";
+        type Type = super::PhotoSquare;
+        type ParentType = gtk::Widget;
+    }
+
+    impl ObjectImpl for Square {
+        fn dispose(&self) {
+            if let Some(child) = self.obj().first_child() {
+                child.unparent();
+            }
+        }
+    }
+
+    impl WidgetImpl for Square {
+        fn request_mode(&self) -> gtk::SizeRequestMode {
+            gtk::SizeRequestMode::HeightForWidth
+        }
+
+        fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            let edge = if orientation == gtk::Orientation::Vertical && for_size >= 0 {
+                for_size
+            } else {
+                128
+            };
+            (edge, edge, -1, -1)
+        }
+
+        fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+            if let Some(child) = self.obj().first_child() {
+                child.allocate(width, height, baseline, None);
+            }
+        }
+
+        fn snapshot(&self, snapshot: &gtk::Snapshot) {
+            if let Some(child) = self.obj().first_child() {
+                self.obj().snapshot_child(&child, snapshot);
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct PhotoSquare(ObjectSubclass<square::Square>)
+        @extends gtk::Widget,
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Photo {
     pub id: String,
@@ -55,8 +114,8 @@ impl AlbumGrid {
             let item = item.downcast_ref::<gtk::ListItem>().unwrap();
             let preview = Preview::new(256, 128, true);
             preview.stack.set_size_request(128, 128);
-            let frame = gtk::AspectFrame::new(0.5, 0.5, 1.0, false);
-            frame.set_child(Some(&preview.stack));
+            let frame: PhotoSquare = glib::Object::new();
+            preview.stack.set_parent(&frame);
             item.set_child(Some(&frame));
             item.set_activatable(true);
             setup.borrow_mut().insert(item.as_ptr() as usize, preview);
@@ -89,8 +148,8 @@ impl AlbumGrid {
                 .set_child(gtk::Widget::NONE);
         });
         let view = gtk::GridView::new(Some(selection), Some(factory));
-        view.set_min_columns(2);
-        view.set_max_columns(8);
+        view.set_min_columns(3);
+        view.set_max_columns(3);
         view.set_single_click_activate(true);
         view.add_css_class("album-grid");
         view.set_widget_name("photo-grid");

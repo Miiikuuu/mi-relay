@@ -74,7 +74,9 @@ class DeviceAutoTest {
         val uploaded = app.store.transfers.value.single()
         assertEquals("Auto notes.txt", uploaded.name); assertNotNull(uploaded.deliveryId)
         assertEquals(source.revision, uploaded.autoRevision)
-        assertFalse(File(app.store.directory(uploaded.id), "payload").exists())
+        // Completion is durably published before the worker deletes staging.
+        // Fast persistent connections make that intentional window observable.
+        DeviceSupport.await(5000) { !File(app.store.directory(uploaded.id), "payload").exists() }
         AutoFixture.put("same-content-new-name", 12345)
         scan(source, 100000); scan(source, 120000)
         assertEquals(1, app.store.transfers.value.size)
@@ -169,7 +171,7 @@ class DeviceAutoTest {
         val source = enable(); AutoFixture.put("recovery", 12347)
         val file = AutoSession().use { DirectorySource(app.contentResolver).snapshot(AutoFixture.tree, it).files.single() }
         app.store.automatic.observe(source, listOf(file), 0)
-        val id = FileImporter(app.contentResolver, app.store).stage(file.uri) { app.store.automatic.commit(source, file, it) }!!
+        val id = FileImporter(app.contentResolver, app.store).stage(file.uri, source.folderId) { app.store.automatic.commit(source, file, it) }!!
         assertTrue(manager.getWorkInfosForUniqueWork("upload:$id").get().isEmpty())
         app.uploads.recover(source)
         val work = manager.getWorkInfosForUniqueWork("upload:$id").get().single()
@@ -181,7 +183,7 @@ class DeviceAutoTest {
         val source = enable(); AutoFixture.put("revoke-before-upload", 12348)
         val file = AutoSession().use { DirectorySource(app.contentResolver).snapshot(AutoFixture.tree, it).files.single() }
         app.store.automatic.observe(source, listOf(file), 0)
-        val id = FileImporter(app.contentResolver, app.store).stage(file.uri) { app.store.automatic.commit(source, file, it) }!!
+        val id = FileImporter(app.contentResolver, app.store).stage(file.uri, source.folderId) { app.store.automatic.commit(source, file, it) }!!
         AutoFixture.control("revoke")
         app.uploads.enqueue(id)
         DeviceSupport.await(30000) { app.store.transfer(id)?.status == TransferStatus.PAUSED }
@@ -192,7 +194,7 @@ class DeviceAutoTest {
         val source = enable(); AutoFixture.put("pause-before-enqueue", 12346)
         val file = AutoSession().use { DirectorySource(app.contentResolver).snapshot(AutoFixture.tree, it).files.single() }
         app.store.automatic.observe(source, listOf(file), 0)
-        val id = FileImporter(app.contentResolver, app.store).stage(file.uri) { app.store.automatic.commit(source, file, it) }!!
+        val id = FileImporter(app.contentResolver, app.store).stage(file.uri, source.folderId) { app.store.automatic.commit(source, file, it) }!!
         app.uploads.pause(id)
         app.uploads.enqueue(id); app.uploads.recover(source)
         assertEquals(TransferStatus.PAUSED, app.store.transfer(id)!!.status)

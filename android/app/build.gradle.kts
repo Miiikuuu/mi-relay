@@ -4,6 +4,31 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Public release metadata only. Signing keys/passwords never enter Gradle or CI.
+val releaseVersion = providers.gradleProperty("mirelayReleaseVersion").orNull
+val releaseCode = providers.gradleProperty("mirelayReleaseVersionCode").orNull
+fun packageVersion(path: String): String? {
+    val section = Regex("(?ms)^\\[package]\\s*\\n(.*?)(?=^\\[|\\z)")
+        .find(rootProject.file(path).readText())?.groupValues?.get(1) ?: return null
+    return Regex("(?m)^version\\s*=\\s*\"([^\"]+)\"\\s*$").find(section)?.groupValues?.get(1)
+}
+val validateReleaseMetadata = tasks.register("validateReleaseMetadata") {
+    doLast {
+        check(releaseVersion?.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc)\\.[0-9]+)?")) == true) {
+            "Use android/scripts/release.py prepare with explicit release metadata."
+        }
+        check(releaseCode?.toIntOrNull()?.let { it in 2..2100000000 } == true) {
+            "A release versionCode must be explicitly selected (2..2100000000)."
+        }
+        check(releaseVersion == packageVersion("../Cargo.toml") && releaseVersion == packageVersion("native/Cargo.toml")) {
+            "Release versionName must match both Cargo package versions."
+        }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(validateReleaseMetadata)
+}
+
 android {
     namespace = "io.mirelay.android"
     compileSdk = 36
@@ -12,8 +37,8 @@ android {
         applicationId = "io.mirelay.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = releaseCode?.toIntOrNull() ?: 1
+        versionName = releaseVersion ?: "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -23,7 +48,10 @@ android {
     }
     buildFeatures { compose = true; buildConfig = true }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            signingConfig = null // Prepare unsigned; a separate local tool signs a copy.
+        }
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true

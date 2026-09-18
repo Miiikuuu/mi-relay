@@ -27,6 +27,14 @@ internal class FolderConnection(private val context: Context) {
         }
     }
 
+    fun exit(folder: Folder, token: String, action: String): JSONObject {
+        require(folder.scoped) { "Clean exit requires an independently paired Folder. Shared legacy tokens cannot be revoked per Folder." }
+        require(action in listOf("exit_status", "clean_exit", "ack_exit"))
+        val info = call(action, folder.server, token, folder.insecure).getJSONObject("result")
+        require(info.getString("role") == "sender") { "Use a sender receipt credential on Android." }
+        return info
+    }
+
     fun check(folder: Folder, token: String): JSONObject? {
         val scoped = URI(folder.server).path.orEmpty().contains("/f/")
         val response = call(if (scoped) "handshake" else "legacy_check", folder.server, token, folder.insecure)

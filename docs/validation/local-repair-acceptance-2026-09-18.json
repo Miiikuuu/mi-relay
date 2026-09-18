@@ -1,0 +1,563 @@
+{
+  "date": "2026-09-18",
+  "status": "authorized_local_repairs_and_scoped_reacceptance_passed_not_release_approval",
+  "closed_local_findings": [
+    "AC-01",
+    "AC-02",
+    "AC-03"
+  ],
+  "production_upgraded": false,
+  "physical_phone_changed_this_run": false,
+  "installed_desktop_changed_this_run": false,
+  "committed_or_pushed": false,
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_checkout": true,
+  "original_indexed_inputs_unchanged_during_broad_run": true,
+  "broad_input_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+  "rust_per_toolchain": {
+    "1.98.1": {
+      "passed": 244,
+      "failed": 0,
+      "ignored": 23
+    },
+    "1.88.0": {
+      "passed": 244,
+      "failed": 0,
+      "ignored": 23
+    }
+  },
+  "android_instrumented": {
+    "passed": 91,
+    "failed": 0,
+    "private_report": "android/.local/device-qa-3e768cwk",
+    "result_sha256": "2d851a185e17b5ad8ecb631acd308098abfb3fdf669cc5d3434af837b8240118",
+    "summary": {
+      "apk_sha256": "d2a571a61bedf3b89fea23ca203c6622698363cb9529b4cbf357819b0a6bbc7b",
+      "environment_loopback": true,
+      "DeviceDirectoryTest": true,
+      "DeviceRuntimeTest": true,
+      "DeviceAutoTest": true,
+      "DeviceUiTest": true,
+      "NotificationDeniedTest": true,
+      "CameraPermissionDeniedTest": true,
+      "DeviceAppearanceTest": true,
+      "photo_preview_seed": true,
+      "photo_preview_cold_start": true,
+      "recovery_seed": true,
+      "process_sigkill_resume": true,
+      "auto-recovery_seed": true,
+      "auto-process_sigkill_resume": true,
+      "linux_exact_bytes_and_hash": true,
+      "linux_delivery_count": 14,
+      "linux_all_acknowledged": true,
+      "paired_linux_delivery_count": 1,
+      "disconnected_linux_receivers_blocked": 3,
+      "paired_linux_exact_bytes_hash_ack": true,
+      "directory_linux_path_count": 52
+    }
+  },
+  "ordered_regression": {
+    "passed": 6,
+    "private_report": "android/.local/device-qa-r7xymk79"
+  },
+  "jvm": {
+    "tests": 110,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 18,
+    "warning_ids": [
+      "GradleDependency",
+      "NewerVersionAvailable",
+      "ObsoleteSdkInt",
+      "UseKtx"
+    ]
+  },
+  "deployment_unit_tests": 14,
+  "isolated_real_upgrade_4_to_5_passed": true,
+  "native_elf": [
+    {
+      "file": "lib/arm64-v8a/libandroidx.graphics.path.so",
+      "min_load_alignment": 16384,
+      "offset_vaddr_16k_congruent": true
+    },
+    {
+      "file": "lib/x86_64/libandroidx.graphics.path.so",
+      "min_load_alignment": 16384,
+      "offset_vaddr_16k_congruent": true
+    },
+    {
+      "file": "lib/arm64-v8a/libmirelay_android.so",
+      "min_load_alignment": 16384,
+      "offset_vaddr_16k_congruent": true
+    },
+    {
+      "file": "lib/x86_64/libmirelay_android.so",
+      "min_load_alignment": 16384,
+      "offset_vaddr_16k_congruent": true
+    }
+  ],
+  "artifacts": {
+    "android/app/build/outputs/apk/debug/app-debug.apk": "d2a571a61bedf3b89fea23ca203c6622698363cb9529b4cbf357819b0a6bbc7b",
+    "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "be29ed1d93e827ea9c9bfdc7e22bc7d9b4809fa7642d27c9445b720a49e56cf7",
+    "target/debug/mirelay-server": "36e9f13d123fc34c927a7d23d243846c1e17cca744245df0bddabc8c1c858cf5",
+    "target/deployment/disconnect-rollout-wAUDEYl5/mirelay-server": "cd1351dce893b9f32c1f9bd75791d0b1250c949dcfca5383996fd918a9305334"
+  },
+  "teardown": {
+    "owned_emulator_stopped": true,
+    "three_local_test_ports_released": true
+  },
+  "limits": [
+    "Not a frozen or signed release candidate",
+    "No production write or real systemd/fresh-install acceptance",
+    "New APK not installed on the physical phone; prior native chain is separate evidence",
+    "No fresh optical QR, long natural screen-off/unplugged scheduling or real network-handover acceptance",
+    "No fresh full performance qualification; only relevant ignored private-D-Bus test rerun"
+  ],
+  "reports": [
+    {
+      "label": "repair-0918-android-build",
+      "path": "target/ci-reports/repair-0918-android-build/result.json",
+      "sha256": "825d83196194dbf5492bb956dfe7e67a2221954983fc4cc12a1b1d21ca8255ef",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "d6b89e43ff894fbc13c38a4174f5ab222be6e438f69e39be946c1189e03ab53d",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "2107715035f8f081b6384749a5491f4e281899544b7cd1ed1c62de36b0e5eab8",
+          "elapsed_seconds": 191.943,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-apk-alignment",
+      "path": "target/ci-reports/repair-0918-apk-alignment/result.json",
+      "sha256": "db23be398ce6a321942408ffe556527c93e364599427583f9980077add99b73c",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "elapsed_seconds": 0.012,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-apk-signature",
+      "path": "target/ci-reports/repair-0918-apk-signature/result.json",
+      "sha256": "433b985dd9becb0bb998e4aa39d14c755c90c46e13835d5e04ab459466c3ec3b",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "a782525ca0abeb7156ac7d66e78a91e802563491d0325df7141997582ff831db",
+          "elapsed_seconds": 0.315,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-clippy",
+      "path": "target/ci-reports/repair-0918-clippy/result.json",
+      "sha256": "0f5d31768dcfd91d62de3d7d33491b840f191338ad9315aba666403f54a7311f",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "d6b89e43ff894fbc13c38a4174f5ab222be6e438f69e39be946c1189e03ab53d",
+      "runs": [
+        {
+          "exit_code": 101,
+          "command_exit_code": 101,
+          "log": "run-001.log",
+          "log_sha256": "92a81996455151bc29e751f46f302a6976882dda767d59f2d090b3a898372aa2",
+          "elapsed_seconds": 13.242,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-clippy-final",
+      "path": "target/ci-reports/repair-0918-clippy-final/result.json",
+      "sha256": "0751c883dd0904c347ee41747e6f24e980bed9dec329e9d3fe318a13afce5c27",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "244033efb4203e4d336f4cc8624ae9f6f83b4483929492f05cdcfbc0d029aa51",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "973c7b4af5787c6ecfdda5572ef3a40c860c4ba7f61f5aa8651daf050eb6a033",
+          "elapsed_seconds": 5.928,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-deploy-final",
+      "path": "target/ci-reports/repair-0918-deploy-final/result.json",
+      "sha256": "d2bb594bb6fd430f68ea28f68dced9647fca4ff588f52fb72ecae2ad2cf1e248",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "d7a657fd39e6ffae0d0739424c46916c4b6c5284284c4f3ed989d1a16cebea62",
+          "elapsed_seconds": 0.165,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-deploy-tests",
+      "path": "target/ci-reports/repair-0918-deploy-tests/result.json",
+      "sha256": "c8f4af7a3f6df120200414f9259126d274737edca95166de713735a1cbfe7ae0",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "d6b89e43ff894fbc13c38a4174f5ab222be6e438f69e39be946c1189e03ab53d",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "af0724066e073ae46fb9a19be331680eddfca5703e6c9740723884b6b57594e6",
+          "elapsed_seconds": 0.165,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-emulator-full",
+      "path": "target/ci-reports/repair-0918-emulator-full/result.json",
+      "sha256": "493a54786c020aa89b6051323d057375a60b09c43b5f4517b817121f4d3f8e8c",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "49ea6b98175af9aa93c1461e7289bc6f13a21717c07649389402899de8159596",
+          "elapsed_seconds": 441.238,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-fmt",
+      "path": "target/ci-reports/repair-0918-fmt/result.json",
+      "sha256": "9c45307292ec481d8409ea9dec871fbf5a4f92d3ae52dc14533948034b5d4a71",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "d6b89e43ff894fbc13c38a4174f5ab222be6e438f69e39be946c1189e03ab53d",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "elapsed_seconds": 0.365,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-format-final",
+      "path": "target/ci-reports/repair-0918-format-final/result.json",
+      "sha256": "a2e6d299326928b1f528a4c918c1cd5335973f637e37f63d2dcf92dd7561e525",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "elapsed_seconds": 0.717,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-jvm-qr",
+      "path": "target/ci-reports/repair-0918-jvm-qr/result.json",
+      "sha256": "2690a78fe905079d3d397a6bd7ea2d7130c1af56ee8206b0cb13b839fc4b071c",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "53ad3a3164b140e1ad2211ff6e9103fa8eb903f2e6d7cb9a637f513b3fddf626",
+          "elapsed_seconds": 24.122,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-msrv",
+      "path": "target/ci-reports/repair-0918-msrv/result.json",
+      "sha256": "82e0f4d3a0a8c893e4aa982c2ef825c30e49f10944e395a28b9bcf8eac9ef178",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "244033efb4203e4d336f4cc8624ae9f6f83b4483929492f05cdcfbc0d029aa51",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "b33100e7b46ab60475b4c5b666715716eedb276d76a55bbc34c4f341f61f6963",
+          "elapsed_seconds": 88.858,
+          "rust_counts": {
+            "passed": 244,
+            "failed": 0,
+            "ignored": 23
+          }
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-native-fmt",
+      "path": "target/ci-reports/repair-0918-native-fmt/result.json",
+      "sha256": "fe0abb258481c887d2e0c24e414e979cce7191f490c70d9da70f6c9383a2ecd5",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "d6b89e43ff894fbc13c38a4174f5ab222be6e438f69e39be946c1189e03ab53d",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "elapsed_seconds": 0.064,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-ordered-regression",
+      "path": "target/ci-reports/repair-0918-ordered-regression/result.json",
+      "sha256": "710a3e960bbfebc14e9e3136cdc5a4d13b07969d0431a0db5fd4af89f9a1b548",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "49556995a61af5bebd3f7ceedef3cbce4d7afc1f7b8b0a20683c9f8e8674d1c9",
+          "elapsed_seconds": 54.366,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-power-private-bus",
+      "path": "target/ci-reports/repair-0918-power-private-bus/result.json",
+      "sha256": "83e25c029e16d0edc6380e2e86f7b40b69b9cbaf526dff015dd878ff5988f8c0",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "baced81c2495430cf461990b088e12271bf14085bac35fdcc2e9f763ec15c978",
+          "elapsed_seconds": 1.119,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-rust-all-targets",
+      "path": "target/ci-reports/repair-0918-rust-all-targets/result.json",
+      "sha256": "18cdb3e6c549301eb1ff5462e74005e29d8d6f3c59a85769b18a27fbc3800b9e",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "244033efb4203e4d336f4cc8624ae9f6f83b4483929492f05cdcfbc0d029aa51",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "ac40d72a73c770a624d145a0eee78bfc494acfbbbf4afc02f33816369133633b",
+          "elapsed_seconds": 35.557,
+          "rust_counts": {
+            "passed": 244,
+            "failed": 0,
+            "ignored": 23
+          }
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-upgrade-4-to-5",
+      "path": "target/ci-reports/repair-0918-upgrade-4-to-5/result.json",
+      "sha256": "05efbaf62cbf3bf6a16fdc7e3f6bdd26562c667834c0df9982c21479b882cb52",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "d6b89e43ff894fbc13c38a4174f5ab222be6e438f69e39be946c1189e03ab53d",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "f31c893ea9e15aa134d5abf0573a33032179d24c199d45387af68a84c7987350",
+          "elapsed_seconds": 8.281,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repair-0918-upgrade-final",
+      "path": "target/ci-reports/repair-0918-upgrade-final/result.json",
+      "sha256": "1b0146ca7377dc9b02d713ad2366fd31ffceae9b0b9907de5a946ba188501a8a",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "8a7435d92734179ecc5678eba119ab0eb0dfa71f420e0094c1cb5c79ae752940",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "5902a0438dce6176bbfab037073185bbf3d6950bc7fb4483a0446575b1dc072f",
+          "elapsed_seconds": 7.38,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-clippy",
+      "path": "target/ci-reports/repeat-0918-clippy/result.json",
+      "sha256": "876c6ebc83496a77649118b17c073970a46000c3fcac6d66088d204391557feb",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 101,
+          "command_exit_code": 101,
+          "log": "run-001.log",
+          "log_sha256": "a7c217e2ddbad9a0c26a21d70e1c42c374629c57950d41cee03bc586475819b4",
+          "elapsed_seconds": 4.474,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-fmt",
+      "path": "target/ci-reports/repeat-0918-fmt/result.json",
+      "sha256": "e1254bc5a69263b1f0d78d95219f7b10ab5e9a90e5328d277af06455546d9d9d",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "9e5e109789d3e9ad657614de59aceef05046f77a8751aa0ddbfda6dfb35689fb",
+          "elapsed_seconds": 0.516,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-native-fmt",
+      "path": "target/ci-reports/repeat-0918-native-fmt/result.json",
+      "sha256": "0d34e9202049f4a94ce6b7a6433c1899ad981c30df6bb348cd2423169764c11b",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "6bbf8d33fc4cd56a4ff59c228ea5e757f97ac422f41e439da214506b9cd92554",
+          "elapsed_seconds": 0.115,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-production-readonly",
+      "path": "target/ci-reports/repeat-0918-production-readonly/result.json",
+      "sha256": "892e2adea2829429e6a95fa4f8ea652b4be19bc4084de107099b30b6b248e580",
+      "all_requested_runs_passed": true,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e5016fcdcc6741465992e1344f990d2be9dca0068ec8d25d56ca1e563dc955ed",
+          "elapsed_seconds": 3.371,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-rust-desktop",
+      "path": "target/ci-reports/repeat-0918-rust-desktop/result.json",
+      "sha256": "b1a35d2608d5feffab222312642674331d8e1ac3ca5ca03497ed1cfcedfc1785",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "68f03bfb10840619056ce95e12b989c45d40f4325b95b11314154aa0c52725d6",
+          "elapsed_seconds": 4.486,
+          "rust_counts": {
+            "passed": 240,
+            "failed": 0,
+            "ignored": 23
+          }
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-ui-contamination",
+      "path": "target/ci-reports/repeat-0918-ui-contamination/result.json",
+      "sha256": "9c845b922f71bcfac3e3f05baa334bad99886ab0253c9511322f068f75eab7ad",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "3757d332684a99a63649b635187d341bc7040286ddf4058824b039172cb2243c",
+          "elapsed_seconds": 39.827,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "repeat-0918-upgrade-entry",
+      "path": "target/ci-reports/repeat-0918-upgrade-entry/result.json",
+      "sha256": "994f0c0e442c3d2d721e5e109dcf3b97c4803369077f0bed4a0e5e3e37a70679",
+      "all_requested_runs_passed": false,
+      "source_index_sha256": "c8e882fe1539a6dc257b8e11cf5791c586571ac3ad4adb08951388bee1633c60",
+      "runs": [
+        {
+          "exit_code": 2,
+          "command_exit_code": 2,
+          "log": "run-001.log",
+          "log_sha256": "89de69c6d8c40a01568cf5e27674336162146c1d9ffde0cbc99a78834164ce9a",
+          "elapsed_seconds": 0.114,
+          "rust_counts": null
+        }
+      ]
+    }
+  ]
+}

@@ -262,6 +262,7 @@ mod tests {
                 auto_receive: false,
             },
             snapshot: Some(BridgeSnapshot {
+                connection_state: crate::config::ConnectionState::Connected,
                 directory: None,
                 name: name.into(),
                 device_id: id.into(),

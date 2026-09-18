@@ -7,7 +7,6 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
-import java.util.UUID
 
 /** Host harness force-stops between phases; unlike Activity recreation this
  * proves the bitmap did not survive only in the process-wide memory cache. */
@@ -17,11 +16,9 @@ class PhotoPreviewRecoveryTest {
         DeviceSupport.reset()
         val app = DeviceSupport.app
         val folder = DeviceSupport.folder()
-        val id = UUID.randomUUID().toString()
-        val dir = app.store.directory(id).apply { mkdirs() }
+        val id = DeviceSupport.image(folder, "Uploaded-original.png")
+        val dir = app.store.directory(id)
         val payload = File(dir, "payload")
-        app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { input -> payload.outputStream().use { input.copyTo(it) } }
-        app.store.addTransfer(id, folder, "Uploaded-original.png", payload.length())
         app.uploads.enqueue(id, manual = true)
         DeviceSupport.await(60000) { app.store.transfer(id)?.status == TransferStatus.UPLOADED && !payload.exists() }
         assertNotNull(runBlocking { PhotoThumbnails.load(app.store, id, 256) })

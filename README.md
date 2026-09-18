@@ -33,6 +33,10 @@ and metadata. Start with a separate test Folder and keep backups.
   [Scan the Linux invitation QR code](docs/qr-pairing.md) on Android, or enter it manually.
 - [Disconnect a Folder](docs/folder-disconnection.md) from either app, revoke both
   devices on the relay, then remove its local entry without deleting your files.
+- Use [Clean exit](docs/folder-clean-exit.md) for a paired Folder to additionally
+  clean relay payloads, unfinished uploads and app-owned local state. Offline
+  peers remain pending until their cleanup is acknowledged; original and received
+  files are kept. Requires the updated relay and both clients.
 - Select an existing Android directory without moving its files or requiring
   all-files access. Preview and explicitly initialize directory sync against an
   existing Linux directory.

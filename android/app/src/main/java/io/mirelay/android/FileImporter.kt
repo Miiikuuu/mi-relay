@@ -12,9 +12,17 @@ import java.security.MessageDigest
 
 class FileImporter(private val resolver: ContentResolver, private val store: RelayStore) {
     fun import(uri: Uri, folderId: String): String {
-        return checkNotNull(stage(uri) { file -> store.addTransfer(file.id, folderId, file.name, file.size); true })
+        return FolderWorkGate.work {
+            store.requireConnectionOpen(folderId)
+            checkNotNull(stage(uri, folderId) { file -> store.addTransfer(file.id, folderId, file.name, file.size); true })
+        }
     }
-    internal fun stage(uri: Uri, session: AutoSession? = null, exactName: String? = null, commit: (StagedFile) -> Boolean): String? {
+    internal fun stage(uri: Uri, folderId: String, session: AutoSession? = null, exactName: String? = null, commit: (StagedFile) -> Boolean): String? {
+        return FolderWorkGate.work { stageLocked(uri, folderId, session, exactName, commit) }
+    }
+    private fun stageLocked(uri: Uri, folderId: String, session: AutoSession?, exactName: String?, commit: (StagedFile) -> Boolean): String? {
+        require(UUID.fromString(folderId).toString() == folderId)
+        store.requireConnectionOpen(folderId)
         exactName?.let { DirectoryPaths.validate(it); require('/' !in it) }
         require(uri.scheme == "content") { "Choose or share a file using Android's file provider." }
         var name: String? = null
@@ -34,6 +42,13 @@ class FileImporter(private val resolver: ContentResolver, private val store: Rel
         val payload = File(dir, "payload")
         var recorded = false
         try {
+            // Ownership must survive a process death before the queue commit.
+            // No payload bytes are written until this marker is durable.
+            FileOutputStream(File(dir, "folder-owner")).use { it.write(folderId.toByteArray(Charsets.US_ASCII)); it.fd.sync() }
+            for (directory in listOfNotNull(dir, dir.parentFile, dir.parentFile?.parentFile)) {
+                val fd = Os.open(directory.path, OsConstants.O_RDONLY, 0)
+                try { Os.fsync(fd) } finally { Os.close(fd) }
+            }
             var size = 0L
             val digest = MessageDigest.getInstance("SHA-256")
             requireNotNull(resolver.openAssetFileDescriptor(uri, "r", session?.signal)) { "Cannot open shared file. Share it again." }.use { descriptor ->
@@ -71,7 +86,11 @@ class FileImporter(private val resolver: ContentResolver, private val store: Rel
             if (recorded) store.refresh()
             return if (recorded) id else null
         } finally {
-            if (!recorded) { partial.delete(); payload.delete(); dir.delete() }
+            if (!recorded) {
+                partial.delete(); payload.delete()
+                if (!partial.exists() && !payload.exists()) File(dir, "folder-owner").delete()
+                dir.delete()
+            }
         }
     }
 }

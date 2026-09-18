@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-16",
+  "scope": "Android compatibility fix for legacy empty staging locks found during physical-phone clean-exit acceptance",
+  "status": "physical_phone_fix_verified_and_isolated_three_party_exit_completed",
+  "dirty_checkout": true,
+  "apk_sha256": "4b7e3d78384fa8e8089e7a55690e3c091c005d976206922dd8553d2cd5fe2297",
+  "fix": {
+    "accept": "Only empty regular resume.json.lock files without a symbolic link",
+    "preserve": "The legacy lock inode is not removed",
+    "reject": "Nonempty locks, symbolic links and unowned payload/resume files"
+  },
+  "regression": {
+    "pre_fix_failure_reproduced": true,
+    "pre_fix_report": "target/ci-reports/phone-clean-exit-empty-lock-regression-0916",
+    "post_fix_report": "target/ci-reports/phone-clean-exit-empty-lock-fix-0916/result.json",
+    "jvm_tests": 110,
+    "jvm_passed": 109,
+    "jvm_failed": 0,
+    "jvm_skipped": 1,
+    "lint_errors": 0,
+    "lint_warnings": 18,
+    "debug_apk_and_instrumentation_apk_built": true,
+    "added_cases": [
+      "Empty legacy lock does not block cleanup and remains on disk",
+      "Nonempty lock or payload beside an empty lock still blocks cleanup",
+      "A symbolic link to an empty file is not accepted as a regular empty lock"
+    ]
+  },
+  "physical_retest": {
+    "device": "vivo V2329A, Android 16",
+    "private_evidence": "android/.local/phone-full-20260916-QHLeXZ",
+    "signed_in_place_update_and_exact_installed_apk_hash_verified": true,
+    "package_uid_preserved": true,
+    "startup_resumed_pending_exit": true,
+    "baseline_empty_locks_preserved": 3,
+    "baseline_preferences_preserved": true,
+    "source_file_hashes_verified": 5,
+    "transfer_auto_and_preview_rows_cleaned": true,
+    "premature_receipt_removal_disabled": true,
+    "phone_waited_for_receiver_receipt": true,
+    "final_server_sender_receiver_receipts": [true, true, true],
+    "phone_complete_state_and_credential_erasure_verified": true,
+    "final_test_folder_entries_removed": 2,
+    "final_folder_and_transfer_rows": 0,
+    "source_directory_permission_released": true,
+    "test_usb_mapping_removed": true,
+    "owned_proxy_and_relay_stopped": true,
+    "linux_receiver": "Real CLI transfers; explicit fixture-only manual state retirement with backup, original/hash/history preservation and independent API acknowledgement",
+    "stale_cli_receiver": "Rejected at revoked-pairing gate before opening local state",
+    "linux_desktop_logic_regression": {
+      "passed": 2,
+      "failed": 0,
+      "report": "target/ci-reports/phone-clean-exit-linux-regression-0916/result.json"
+    }
+  },
+  "failed_attempts": [
+    "ADB connection disappeared before update; reconnected and exact device identity verified",
+    "Fixture retirement assertion expected local retired-state error, but CLI correctly rejected revoked pairing earlier; no receiver acknowledgement was sent until the assertion and preservation checks were corrected"
+  ],
+  "limitations": [
+    "This is a targeted compatibility and exit retest, not a full release qualification",
+    "Linux desktop GUI exit was not exercised against this physical phone; its core cleanup received separate integration tests",
+    "Source files and private recovery evidence are intentionally retained",
+    "No production relay deployment, installed Linux application replacement, commit or push"
+  ]
+}

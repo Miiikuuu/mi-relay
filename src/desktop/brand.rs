@@ -1,8 +1,10 @@
 use super::*;
 use std::sync::OnceLock;
 
+#[cfg(test)]
 const ICON: &str = "/io/mirelay/Desktop/icons/128x128/apps/io.mirelay.Desktop.png";
 const WORDMARK: &str = "/io/mirelay/Desktop/brand/wordmark.png";
+const SIDEBAR_WORDMARK: &str = "/io/mirelay/Desktop/brand/wordmark-transparent.png";
 
 pub(super) fn register_resources() -> Result<()> {
     static REGISTERED: OnceLock<std::result::Result<(), String>> = OnceLock::new();
@@ -22,14 +24,26 @@ pub(super) fn install_icons() {
 }
 
 pub(super) fn about_button(parent: &adw::ApplicationWindow) -> gtk::Button {
-    let image = gtk::Image::from_resource(ICON);
-    image.set_pixel_size(32);
+    let image = gtk::Picture::new();
+    // This offline-derived asset only removes the exterior canvas. No redraw,
+    // runtime pixel processing, cropping, or tint; About retains the original.
+    if let Ok(pixbuf) =
+        gtk::gdk_pixbuf::Pixbuf::from_resource_at_scale(SIDEBAR_WORDMARK, 112, 70, true)
+    {
+        image.set_pixbuf(Some(&pixbuf));
+    } else {
+        image.set_resource(Some(SIDEBAR_WORDMARK));
+    }
+    image.set_keep_aspect_ratio(true);
+    image.set_can_shrink(true);
+    image.set_alternative_text(Some("MiRelay — About"));
     let button = gtk::Button::builder()
         .child(&image)
         .tooltip_text("About MiRelay")
         .valign(gtk::Align::Center)
         .build();
     button.set_widget_name("brand-about");
+    button.add_css_class("flat");
     button.add_css_class("brand-button");
     let parent = parent.downgrade();
     button.connect_clicked(move |_| {
@@ -38,6 +52,14 @@ pub(super) fn about_button(parent: &adw::ApplicationWindow) -> gtk::Button {
         }
     });
     button
+}
+
+pub(super) fn folder_icon(kind: crate::bridge_registry::FolderKind) -> &'static str {
+    if kind.is_general() {
+        "relay-folder-symbolic"
+    } else {
+        "relay-photos-symbolic"
+    }
 }
 
 fn about_window(parent: &adw::ApplicationWindow) -> adw::Window {
@@ -98,11 +120,24 @@ mod tests {
         let display = gtk::gdk::Display::default().unwrap();
         assert!(gtk::IconTheme::for_display(&display).has_icon(APPLICATION_ID));
         let parent = adw::ApplicationWindow::builder()
-            .default_width(400)
-            .default_height(100)
+            .default_width(560)
+            .default_height(180)
             .build();
         let button = about_button(&parent);
-        parent.set_content(Some(&button));
+        let preview = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+        preview.set_margin_start(16);
+        preview.set_margin_end(16);
+        preview.append(&button);
+        for size in [16, 32, 48, 64, 128] {
+            // Verify the new embedded pixels even when an older hicolor icon
+            // is installed on the test host and wins named-theme lookup.
+            let icon = gtk::Image::from_resource(&format!(
+                "/io/mirelay/Desktop/icons/{size}x{size}/apps/io.mirelay.Desktop.png"
+            ));
+            icon.set_pixel_size(size);
+            preview.append(&icon);
+        }
+        parent.set_content(Some(&preview));
         parent.present();
         let context = glib::MainContext::default();
         let settle = || {
@@ -145,6 +180,11 @@ mod tests {
             if let Some(directory) = std::env::var_os("MIRELAY_BRAND_TEST_SCREENSHOTS") {
                 let directory = PathBuf::from(directory);
                 assert!(directory.is_absolute() && directory.is_dir());
+                super::super::capture_widget(
+                    parent.upcast_ref(),
+                    &directory.join(format!("launcher-{name}.png")),
+                )
+                .unwrap();
                 let path = directory.join(format!("about-{name}.png"));
                 assert!(!path.exists());
                 super::super::capture_widget(dialog.upcast_ref(), &path).unwrap();
@@ -193,13 +233,35 @@ mod tests {
         let icon = gio::resources_lookup_data(ICON, gio::ResourceLookupFlags::NONE).unwrap();
         assert_eq!(
             icon.as_ref(),
-            include_bytes!("../../assets/brand/MiRelay-brand-kit-v1/icons/png/mirelay-128.png")
+            include_bytes!("../../assets/ui/v2/brand/icons/mirelay-128.png")
         );
+        for size in [16, 24, 32, 48, 64, 96, 128, 192, 256, 512, 1024] {
+            let path =
+                format!("/io/mirelay/Desktop/icons/{size}x{size}/apps/io.mirelay.Desktop.png");
+            let pixels = gtk::gdk_pixbuf::Pixbuf::from_resource(&path).unwrap();
+            assert_eq!((pixels.width(), pixels.height()), (size, size));
+            assert!(pixels.has_alpha(), "launcher icon {size} must have alpha");
+            assert_eq!(pixels.read_pixel_bytes()[3], 0, "launcher canvas {size}");
+        }
         let wordmark =
             gio::resources_lookup_data(WORDMARK, gio::ResourceLookupFlags::NONE).unwrap();
         assert_eq!(
             wordmark.as_ref(),
             include_bytes!("../../assets/brand/MiRelay-brand-kit-v1/wordmark/mirelay-wordmark.png")
+        );
+        let sidebar =
+            gio::resources_lookup_data(SIDEBAR_WORDMARK, gio::ResourceLookupFlags::NONE).unwrap();
+        assert_eq!(
+            sidebar.as_ref(),
+            include_bytes!("../../assets/ui/v2/brand/mirelay-wordmark-transparent.png")
+        );
+        let pixels = gtk::gdk_pixbuf::Pixbuf::from_resource(SIDEBAR_WORDMARK).unwrap();
+        assert!(pixels.has_alpha());
+        assert_eq!((pixels.width(), pixels.height()), (1586, 992));
+        assert_eq!(
+            pixels.read_pixel_bytes()[3],
+            0,
+            "canvas corner is transparent"
         );
     }
 }

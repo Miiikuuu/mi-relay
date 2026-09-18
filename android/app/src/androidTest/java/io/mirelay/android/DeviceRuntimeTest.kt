@@ -14,6 +14,40 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class DeviceRuntimeTest {
     @Before fun setup() { DeviceSupport.reset() }
+    @Test fun imageFixtureOwnershipSurvivesQueueReset() {
+        val app = DeviceSupport.app
+        val folder = DeviceSupport.folder()
+        val id = DeviceSupport.image(folder, "Owned-original.png")
+        val dir = app.store.directory(id)
+        val payload = File(dir, "payload").readBytes()
+        assertEquals(folder, File(dir, "folder-owner").readText())
+        DeviceSupport.reset()
+        val other = DeviceSupport.folder()
+        assertTrue(app.store.cleanupTransfers(other).isEmpty())
+        assertArrayEquals(payload, File(dir, "payload").readBytes())
+    }
+    @Test fun genuinelyUnownedPayloadStillBlocksCleanupWithoutDeletingIt() {
+        val app = DeviceSupport.app
+        val folder = DeviceSupport.folder()
+        val id = DeviceSupport.image(folder, "Unowned-original.png")
+        val dir = app.store.directory(id)
+        val marker = File(dir, "folder-owner")
+        val payload = File(dir, "payload").readBytes()
+        assertTrue(marker.delete())
+        try {
+            app.store.writableDatabase.delete("transfers", "id=?", arrayOf(id))
+            app.store.refresh()
+            val failure = assertThrows(IllegalArgumentException::class.java) {
+                app.store.cleanupTransfers(folder)
+            }
+            assertTrue(failure.message!!.contains("Old unowned staging data"))
+            assertArrayEquals(payload, File(dir, "payload").readBytes())
+        } finally {
+            // Restore this deliberately malformed synthetic fixture, even on a
+            // failed assertion; never poison later cases or relax the guard.
+            marker.writeText(folder, Charsets.US_ASCII)
+        }
+    }
     @Test fun nativeLibraryLoadsAndInitializesOnArt() {
         assertTrue(NativeBridge.initialize(DeviceSupport.app))
         assertTrue(JSONObject(NativeBridge.upload("{}") { _, _ -> true }).has("error"))

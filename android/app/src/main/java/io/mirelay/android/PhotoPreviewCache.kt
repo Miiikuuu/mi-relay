@@ -15,6 +15,13 @@ internal class PhotoPreviewCache(
 ) {
     companion object { private val lock = Any() }
 
+    fun remove(id: String) = synchronized(lock) {
+        val path = file(id)
+        for (candidate in listOf(path, File(path.path + ".new"), File(path.path + ".bak"))) {
+            FolderExit.removeRegular(candidate)
+        }
+    }
+
     private fun file(id: String): File {
         require(UUID.fromString(id).toString() == id) { "Invalid transfer ID." }
         return File(root, "$id.png")

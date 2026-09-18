@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-18",
+  "status": "installed_release_and_physical_phone_retest_passed",
+  "scope": "Installed native Linux release app, physical Android phone and isolated real relay; desktop-initiated clean exit with an initially stopped phone",
+  "dirty_checkout": true,
+  "release_build_report": "target/ci-reports/exit-ui-release-build-0918/result.json",
+  "desktop_install": {
+    "path": "/home/user/.local/bin/mirelay-desktop",
+    "sha256": "925eaae576c8f8d246e6fab45c73e920e53aa165e8f54aa3d3dda0c961b77714",
+    "previous_sha256": "0a52bf02649bbb8d71eee6b61874604b0489e1a64d8aa9b7f72592239a01cc3f",
+    "backup": "android/.local/phone-installed-e2e-20260918-dEB2pW/desktop-before",
+    "replacement": "Staged, hash-checked, fsynced and atomically renamed; launcher and existing Folder configuration unchanged",
+    "running_process_executable_and_hash_verified": true
+  },
+  "phone": {
+    "model": "vivo V2329A",
+    "apk_sha256": "4b7e3d78384fa8e8089e7a55690e3c091c005d976206922dd8553d2cd5fe2297",
+    "existing_apk_verified_no_reinstall": true,
+    "stopped_state_backed_up_before_test": true,
+    "initial_and_final_folder_count": 0
+  },
+  "private_evidence": "android/.local/phone-installed-e2e-20260918-dEB2pW",
+  "passed": [
+    "Create invitation in installed desktop UI, select existing source directory in Android system picker, compare both visible verification codes and confirm through the desktop",
+    "Existing-directory preview correctly identifies 1 identical, 2 missing, 1 different and 1 Linux-only file",
+    "Installed desktop automatic receiver downloads and acknowledges 3 changed files; all 4 source hashes match, Linux original conflict copy and Linux-only file survive",
+    "Stop the phone app after completed delivery and initiate Clean exit from native desktop UI",
+    "Desktop reaches Waiting for peer cleanup with server/receiver receipts true and sender receipt false; Receive and premature Remove disabled, Open folder remains available",
+    "Reopen phone: app discovers peer-requested exit, cleans its owned records and staging, releases source permission, clears completed receipt credential and acknowledges without a script API call",
+    "Desktop normal automatic pending-exit retry reaches Clean exit complete with all three receipts true; Ready and receive-empty hints absent; Receive stays disabled",
+    "Observe more than 65 seconds after completion with settings closed: no automatic receive error and no status regression",
+    "Actual completed-receipt removal dialog explains owned-config deletion and original/marker preservation; Cancel keeps config intact",
+    "Remove completed receipts through both real UIs; desktop owned config removed and both Folder lists empty",
+    "Original source hashes, Linux original/history hashes and all baseline Android private files preserved",
+    "Relay deliveries, directory indexes/versions, content payloads and tus records removed; minimal Folder/exit receipt and safety markers retained"
+  ],
+  "protocol_writes_performed_by_apps": true,
+  "script_acknowledgements_or_manual_state_cleanup": false,
+  "resolved_ui_findings_reproduced_as_fixed": [
+    "desktop-exited-presentation",
+    "desktop-completed-receipt-remove-copy"
+  ],
+  "harness_notes": [
+    "Initial sandbox ADB listener was denied; resumed after permission change and checked partial progress before proceeding",
+    "Phone IME changed URL punctuation; exact-value guard stopped before Save, input was corrected and checked; Chinese IME mode verified at end",
+    "An immediate desktop control lookup ran before the settings window opened; strict locator refused to act, retry succeeded after it was present"
+  ],
+  "teardown": {
+    "test_folder_entries_removed": true,
+    "exact_usb_reverse_mapping_removed": true,
+    "owned_desktop_and_relay_processes_stopped": true,
+    "originals_and_private_recovery_evidence_retained": true
+  },
+  "limits": [
+    "Relay was a loopback-only local process reached from Android over an exact-device USB reverse route, not the production VPS/TLS/Clash path",
+    "This run retests the installed UI fixes and desktop-initiated exit; prior phone-initiated chain evidence remains in the September 16 report",
+    "No optical QR, long screen-off scheduling, all-format or large-file performance qualification in this run",
+    "No new application-source changes, production deployment, commit or push"
+  ]
+}

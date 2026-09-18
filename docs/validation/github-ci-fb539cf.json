@@ -1,0 +1,75 @@
+{
+  "run_id": 34746258569,
+  "commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "url": "https://github.com/Miiikuuu/mi-relay/actions/runs/34746258569",
+  "conclusion": "success",
+  "jobs_passed": 5,
+  "rust_toolchains": [
+    "1.88.0",
+    "1.98.1"
+  ],
+  "rust_per_toolchain": {
+    "default": {
+      "passed": 131,
+      "failed": 0,
+      "ignored": 2
+    },
+    "desktop": {
+      "passed": 226,
+      "failed": 0,
+      "ignored": 17
+    },
+    "locks": {
+      "unique_integration_tests": 4,
+      "repetitions": 25,
+      "all_passed": true
+    }
+  },
+  "gtk": {
+    "backend": "Xvfb/X11",
+    "renderer": "cairo",
+    "passed": 3,
+    "failed": 0,
+    "scope": "Exact allowlist; not performance or physical optical acceptance"
+  },
+  "python": {
+    "deployment_passed": 13,
+    "script_driver_passed": 11
+  },
+  "android": {
+    "junit": {
+      "total": 90,
+      "passed": 89,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    "skipped_test": "PairingInvitationTest.decodeLinuxGeneratedFixtureWhenExplicitlyProvided",
+    "skip_reason": "Explicit mirelay.qr.fixture not supplied by this ordinary CI job",
+    "lint": {
+      "errors": 0,
+      "warnings": 17
+    },
+    "host_jni_smoke": "JNI input checks passed",
+    "debug_apk_and_two_native_abis_built": true,
+    "artifact_hashes_recorded_in": "android.zip: target/ci-reports/android-hashes/run-001.log",
+    "release_signing": false,
+    "emulator_tests_run": false,
+    "phone_tests_run": false
+  },
+  "evidence": {
+    "verified_artifact_archives": 5,
+    "verified_command_reports": 23,
+    "manifest": "manifest.json",
+    "report_hash_verification": "verified.json",
+    "source_dirty_in_reports": false,
+    "remote_artifact_retention_days": 14
+  },
+  "limitations": [
+    "This is passing ordinary CI on a specific commit, not completed beta acceptance.",
+    "Rust counts overlap across default/desktop and toolchains. Repetitions are not unique cases.",
+    "No release, signing, production deployment, phone install or data clearing performed.",
+    "Original uploaded audit document remains local and untracked."
+  ],
+  "scope": "Historical ordinary CI for fb539cf, before the local signing preparation patch; not final release acceptance"
+}

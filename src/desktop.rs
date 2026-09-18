@@ -29,7 +29,9 @@ use crate::model::{DeliveryRecord, DeliveryStatus, WallpaperStatus};
 use crate::state::StateStore;
 use crate::sync::{SyncEvent, SyncPhase, SyncSummary, status_counts, sync_once_with_events};
 
+mod appearance;
 mod brand;
+mod clean_exit;
 mod connection;
 mod directory_panel;
 #[cfg(test)]
@@ -37,11 +39,14 @@ mod directory_tests;
 mod file_smoke;
 mod files;
 mod loading;
+mod navigation;
 mod pairing_panel;
 mod photos;
 mod sidebar;
 mod sorting;
 mod stress_smoke;
+#[cfg(test)]
+mod ui_v2_tests;
 use files::{FileActivity, FileEntry, FileFilter, FileHistory, FileKind, FileSort, visible_files};
 use loading::loading_ring;
 use sidebar::{FolderFilter, FolderSort, folder_notice, has_new_deliveries, visible_folder_ids};
@@ -98,13 +103,14 @@ const DESKTOP_CSS: &str = r#"
 .mirelay.album-viewer :focus-visible { outline-color: #ffffff; }
 .mirelay.album-viewer popover { color: @window_fg_color; }
 .mirelay .brand-button {
-  background: #ffffff;
+  background: transparent;
+  box-shadow: none;
   padding: 2px;
   border-radius: 8px;
 }
 
 .mirelay .brand-button:hover {
-  box-shadow: inset 0 0 0 1px alpha(@window_fg_color, 0.25);
+  background: alpha(@window_fg_color, 0.05);
 }
 
 .mirelay .brand-canvas {
@@ -475,6 +481,7 @@ struct BridgeCounts {
 
 #[derive(Debug, Clone)]
 struct BridgeSnapshot {
+    connection_state: crate::config::ConnectionState,
     name: String,
     device_id: String,
     source_label: String,
@@ -576,7 +583,10 @@ enum WorkerMessage {
 #[derive(Clone)]
 struct Widgets {
     window: adw::ApplicationWindow,
-    title: adw::WindowTitle,
+    #[cfg(test)]
+    navigation: navigation::Navigation,
+    ambient: appearance::Ambient,
+    appearance_button: gtk::Button,
     refresh_button: gtk::Button,
     sync_button: gtk::Button,
     sync_indicator: gtk::Stack,
@@ -612,6 +622,7 @@ struct Widgets {
     wallpaper_value: gtk::Label,
     activity_stack: gtk::Stack,
     activity_empty: gtk::Label,
+    activity_empty_title: gtk::Label,
     delivery_list: gtk::ListBox,
     photo_grid: photos::AlbumGrid,
     album_layout: photos::Layout,
@@ -1100,6 +1111,14 @@ fn build_window(
         failure: diagnostic_failure,
     } = checks;
     let (widgets, error_close) = build_widgets(application);
+    appearance::install(
+        &widgets.window,
+        &widgets.ambient,
+        &widgets.appearance_button,
+        &widgets.toast_overlay,
+        paths.registry.path().with_file_name("appearance.json"),
+    );
+    widgets.ambient.monitor_power();
     let (sender, receiver) = mpsc::channel();
     let ui = Rc::new(DesktopUi {
         paths,
@@ -1414,14 +1433,19 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .title("MiRelay")
         .default_width(1000)
         .default_height(680)
-        .width_request(820)
+        .width_request(560)
         .height_request(560)
         .build();
     window.add_css_class("mirelay");
 
-    let title = adw::WindowTitle::new("MiRelay", "Folder");
-    let header = adw::HeaderBar::builder().title_widget(&title).build();
-    header.pack_start(&brand::about_button(&window));
+    // The content hero already identifies the Folder. An explicit empty title
+    // widget suppresses libadwaita's fallback window title without removing
+    // native window controls, dragging, or the compact Folder drawer toggle.
+    let header = adw::HeaderBar::builder()
+        .title_widget(&gtk::Box::new(gtk::Orientation::Horizontal, 0))
+        .build();
+    header.set_widget_name("workspace-header");
+    header.add_css_class("workspace-header");
 
     let refresh_button = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
@@ -1429,7 +1453,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         .build();
     refresh_button.add_css_class("flat");
     let settings_button = gtk::Button::builder()
-        .icon_name("emblem-system-symbolic")
+        .icon_name("relay-settings-symbolic")
         .tooltip_text("Folder settings")
         .build();
     settings_button.add_css_class("flat");
@@ -1480,13 +1504,27 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
 
     let sidebar = gtk::Box::new(gtk::Orientation::Vertical, 0);
     sidebar.add_css_class("bridge-sidebar");
-    sidebar.set_width_request(216);
+    sidebar.set_width_request(208);
+    let brand_button = brand::about_button(&window);
+    brand_button.set_halign(gtk::Align::Start);
+    brand_button.set_valign(gtk::Align::Start);
+    brand_button.set_vexpand(false);
+    brand_button.set_margin_start(16);
+    brand_button.set_margin_top(12);
+    brand_button.set_margin_bottom(16);
+    let sidebar_brand = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    sidebar_brand.set_vexpand(false);
+    sidebar_brand.append(&brand_button);
+    let brand_spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    brand_spacer.set_hexpand(true);
+    sidebar_brand.append(&brand_spacer);
+    sidebar.append(&sidebar_brand);
 
     let sidebar_heading = gtk::Box::new(gtk::Orientation::Vertical, 5);
     sidebar_heading.add_css_class("sidebar-heading");
     let heading_line = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     let sidebar_title = gtk::Label::builder()
-        .label("Folder")
+        .label("Folders")
         .xalign(0.0)
         .hexpand(true)
         .build();
@@ -1542,20 +1580,19 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     filter_content.append(&clear_filters);
     let filter_popover = gtk::Popover::builder().child(&filter_content).build();
     let folder_filter_button = gtk::MenuButton::builder()
-        .icon_name("system-search-symbolic")
+        .icon_name("relay-filter-symbolic")
         .tooltip_text("Filter Folders")
         .popover(&filter_popover)
         .build();
     folder_filter_button.add_css_class("flat");
     let add_bridge_button = gtk::Button::builder()
-        .icon_name("list-add-symbolic")
+        .icon_name("relay-add-symbolic")
         .tooltip_text("Add Folder")
         .build();
     add_bridge_button.add_css_class("flat");
     heading_line.append(&sidebar_title);
     heading_line.append(&folder_sort_button);
     heading_line.append(&folder_filter_button);
-    heading_line.append(&add_bridge_button);
     sidebar_heading.append(&heading_line);
     sidebar.append(&sidebar_heading);
 
@@ -1580,6 +1617,25 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     sidebar_results.add_named(&bridge_scroll, Some("list"));
     sidebar_results.add_named(&no_results, Some("empty"));
     sidebar.append(&sidebar_results);
+    let add_content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    add_content.append(&gtk::Image::from_icon_name("relay-add-symbolic"));
+    add_content.append(&gtk::Label::new(Some("Add Folder")));
+    add_bridge_button.set_child(Some(&add_content));
+    add_bridge_button.set_margin_start(12);
+    add_bridge_button.set_margin_end(12);
+    add_bridge_button.set_margin_bottom(12);
+    sidebar.append(&add_bridge_button);
+    let appearance_button = gtk::Button::builder().label("Settings").build();
+    appearance_button.add_css_class("flat");
+    appearance_button.set_tooltip_text(Some("App appearance settings"));
+    let appearance_content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    appearance_content.append(&gtk::Image::from_icon_name("relay-settings-symbolic"));
+    appearance_content.append(&gtk::Label::new(Some("Settings")));
+    appearance_button.set_child(Some(&appearance_content));
+    appearance_button.set_margin_start(12);
+    appearance_button.set_margin_end(12);
+    appearance_button.set_margin_bottom(12);
+    sidebar.append(&appearance_button);
 
     let empty_action = gtk::Button::with_label("Add Folder");
     empty_action.add_css_class("suggested-action");
@@ -1593,7 +1649,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     empty_page.set_vexpand(true);
 
     let bridge_icon = gtk::Image::from_icon_name("folder-symbolic");
-    bridge_icon.set_pixel_size(24);
+    bridge_icon.set_pixel_size(40);
     bridge_icon.add_css_class("bridge-hero-icon");
     bridge_icon.set_valign(gtk::Align::Start);
     let bridge_name = gtk::Label::builder()
@@ -1619,8 +1675,8 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
         "Folder type · changes the view, not which files are received",
     ));
     folder_category.update_property(&[gtk::accessible::Property::Label("Folder type")]);
-    bridge_titles.append(&folder_category);
     bridge_titles.append(&bridge_name);
+    bridge_titles.append(&folder_category);
     bridge_titles.append(&bridge_path);
     let open_library_button = gtk::Button::builder()
         .icon_name("folder-open-symbolic")
@@ -1644,7 +1700,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
 
     let bridge_state_icon = gtk::Image::from_icon_name("network-transmit-receive-symbolic");
     bridge_state_icon.set_pixel_size(16);
-    bridge_state_icon.add_css_class("state-success");
+    bridge_state_icon.add_css_class("secondary-text");
     let bridge_state = gtk::Label::builder().label("Ready").xalign(0.0).build();
     bridge_state.add_css_class("bridge-status");
     let summary_label = gtk::Label::builder()
@@ -1749,7 +1805,7 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     clear_files.set_action_name(Some("win.clear-file-filters"));
     file_filter_content.append(&clear_files);
     let file_filter_button = gtk::MenuButton::builder()
-        .icon_name("system-search-symbolic")
+        .icon_name("relay-filter-symbolic")
         .tooltip_text("Filter Files")
         .popover(&gtk::Popover::builder().child(&file_filter_content).build())
         .build();
@@ -1822,7 +1878,11 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     bridge_page.add_css_class("bridge-page");
     bridge_page.append(&bridge_heading);
     bridge_page.append(&state_line);
-    bridge_page.append(&property_group);
+    album_details
+        .popover()
+        .unwrap()
+        .set_child(Some(&property_group));
+    album_details.set_visible(true);
     bridge_page.append(&activity_header);
     bridge_page.append(&activity_stack);
     bridge_page.append(&file_show_more);
@@ -1858,29 +1918,35 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
     content_stack.add_named(&bridge_error_page, Some("bridge-error"));
     content_stack.set_visible_child_name("empty");
 
-    let workspace = gtk::Paned::new(gtk::Orientation::Horizontal);
-    workspace.add_css_class("workspace");
-    workspace.set_start_child(Some(&sidebar));
-    workspace.set_end_child(Some(&content_stack));
-    workspace.set_position(232);
-    workspace.set_resize_start_child(false);
-    workspace.set_shrink_start_child(false);
-    workspace.set_shrink_end_child(false);
-    workspace.set_vexpand(true);
+    let main_panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main_panel.add_css_class("main-panel");
+    main_panel.set_hexpand(true);
+    main_panel.append(&header);
+    main_panel.append(&error_revealer);
+    main_panel.append(&content_stack);
+    let navigation =
+        navigation::Navigation::new(&sidebar, &sidebar_brand, &main_panel, &header, &bridge_list);
 
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    root.append(&header);
-    root.append(&error_revealer);
-    root.append(&workspace);
+    root.append(&navigation.view);
+
+    let ambient = appearance::Ambient::new(&window);
+    let canvas = gtk::Overlay::new();
+    canvas.set_child(Some(&ambient));
+    canvas.add_overlay(&root);
+    canvas.set_measure_overlay(&root, true);
 
     let toast_overlay = adw::ToastOverlay::new();
-    toast_overlay.set_child(Some(&root));
+    toast_overlay.set_child(Some(&canvas));
     window.set_content(Some(&toast_overlay));
 
     (
         Widgets {
             window,
-            title,
+            #[cfg(test)]
+            navigation,
+            ambient,
+            appearance_button,
             refresh_button,
             sync_button,
             sync_indicator,
@@ -1916,12 +1982,12 @@ fn build_widgets(application: &adw::Application) -> (Widgets, gtk::Button) {
             wallpaper_value,
             activity_stack,
             activity_empty,
+            activity_empty_title,
             delivery_list,
             photo_grid,
             album_layout: photos::Layout {
                 page: bridge_page,
                 clamp: bridge_clamp,
-                property_group,
                 details: album_details,
                 activity: album_activity,
                 activity_scroll,
@@ -2304,6 +2370,15 @@ impl DesktopUi {
             self.show_error(error);
             return;
         }
+        // Also guard programmatic/keyboard activation, not only button clicks.
+        // Automatic pending-exit retries use their separate path below.
+        if !bridge
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.connection_state.is_connected())
+        {
+            return;
+        }
         let request = self.sync_request(&bridge);
         self.start_sync_requests(vec![request], false, "Receiving…");
     }
@@ -2335,18 +2410,48 @@ impl DesktopUi {
             return;
         }
         let registry = self.paths.registry.clone();
+        let paths = self.paths.clone();
         let sender = self.sender.clone();
         for request in &requests {
             self.file_activity.borrow_mut().remove(&request.bridge_id);
         }
         std::thread::spawn(move || {
-            let outcomes =
-                execute_sync_requests_with_events(&registry, requests, &|bridge_id, event| {
-                    let _ = sender.send(WorkerMessage::FileProgress {
-                        bridge_id: bridge_id.to_owned(),
-                        event,
-                    });
-                });
+            let outcomes = requests
+                .into_iter()
+                .map(|request| {
+                    let result = (|| -> Result<SyncResult> {
+                        if clean_exit::resume_if_requested(&paths, &request)? {
+                            let config = load_registered_config(
+                                &registry,
+                                &request.bridge_id,
+                                &request.config_path,
+                            )?;
+                            return Ok(SyncResult {
+                                summary: SyncSummary::default(),
+                                snapshot: snapshot_from_config(config)?,
+                            });
+                        }
+                        sync_registered_bridge_with_events(
+                            &registry,
+                            &request.bridge_id,
+                            &request.config_path,
+                            request.token.as_deref(),
+                            &|event| {
+                                let _ = sender.send(WorkerMessage::FileProgress {
+                                    bridge_id: request.bridge_id.clone(),
+                                    event,
+                                });
+                            },
+                        )
+                    })()
+                    .map_err(|e| format!("{e:#}"));
+                    SyncOutcome {
+                        bridge_id: request.bridge_id,
+                        bridge_name: request.bridge_name,
+                        result,
+                    }
+                })
+                .collect();
             let _ = sender.send(WorkerMessage::Synced {
                 automatic,
                 outcomes,
@@ -2723,7 +2828,6 @@ impl DesktopUi {
     fn render_empty_state(&self) {
         self.widgets.photo_grid.clear();
         self.rendered_context.replace(None);
-        self.widgets.title.set_subtitle("Folder");
         clear_list_box(&self.widgets.delivery_list);
         self.rendered_files.borrow_mut().clear();
         self.widgets.empty_page.set_title("No folders yet");
@@ -2789,8 +2893,7 @@ impl DesktopUi {
             .set_selected(u32::from(!kind.is_general()));
         self.widgets
             .bridge_icon
-            .set_icon_name(Some(kind.icon_name()));
-        self.widgets.title.set_subtitle("Folder");
+            .set_icon_name(Some(brand::folder_icon(kind)));
         self.widgets.bridge_name.set_label(&snapshot.name);
         self.widgets
             .bridge_name
@@ -2798,10 +2901,16 @@ impl DesktopUi {
         let folder = snapshot.library_dir.to_string_lossy();
         self.widgets.bridge_path.set_label(&folder);
         self.widgets.bridge_path.set_tooltip_text(Some(&folder));
-        self.widgets.bridge_state.set_label("Ready");
         self.widgets
-            .bridge_state_icon
-            .set_icon_name(Some("network-transmit-receive-symbolic"));
+            .bridge_state
+            .set_label(connection::status(snapshot.connection_state));
+        self.widgets.bridge_state_icon.set_icon_name(Some(
+            if snapshot.connection_state.is_connected() {
+                "network-transmit-receive-symbolic"
+            } else {
+                "network-offline-symbolic"
+            },
+        ));
         self.widgets.source_value.set_label(&snapshot.source_label);
         self.widgets
             .source_value
@@ -2815,7 +2924,7 @@ impl DesktopUi {
         self.widgets
             .size_limit_value
             .set_label(&format_bytes(snapshot.max_file_size_bytes));
-        let auto_receive_label = if auto_receive {
+        let auto_receive_label = if auto_receive && snapshot.connection_state.is_connected() {
             format!("Every {AUTO_RECEIVE_INTERVAL_SECONDS} seconds")
         } else {
             "Off".to_owned()
@@ -2906,13 +3015,22 @@ impl DesktopUi {
             .get(&id)
             .map(|files| files.values().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
-        self.widgets.bridge_state.set_label(
-            activity
-                .iter()
-                .find_map(|file| file.phase)
-                .map(phase_label)
-                .unwrap_or("Ready"),
-        );
+        let connection_state = self
+            .selected_bridge()
+            .and_then(|bridge| bridge.snapshot)
+            .map(|snapshot| snapshot.connection_state)
+            .unwrap_or(crate::config::ConnectionState::Disconnected);
+        self.widgets
+            .bridge_state
+            .set_label(if connection_state.is_connected() {
+                activity
+                    .iter()
+                    .find_map(|file| file.phase)
+                    .map(phase_label)
+                    .unwrap_or("Ready")
+            } else {
+                connection::status(connection_state)
+            });
         let page = records.page(
             &activity,
             view.sort,
@@ -3021,8 +3139,18 @@ impl DesktopUi {
         if page.total == 0 {
             if records.is_empty() && activity.is_empty() {
                 self.widgets
+                    .activity_empty_title
+                    .set_label(if connection_state.is_connected() {
+                        "No transfers yet"
+                    } else {
+                        connection::status(connection_state)
+                    });
+                self.widgets
                     .activity_empty
-                    .set_label(if directory.is_some() { "Initialize the source on Android, then select Receive. Existing Linux-only files stay unchanged." } else { "Select Receive to check for new files." });
+                    .set_label(connection::empty_message(
+                        connection_state,
+                        directory.is_some(),
+                    ));
                 self.widgets.activity_stack.set_visible_child_name("empty");
             } else {
                 self.widgets
@@ -3208,11 +3336,17 @@ impl DesktopUi {
         let valid = self
             .selected_bridge()
             .is_some_and(|bridge| bridge.error.is_none() && bridge.snapshot.is_some());
+        let connected = self
+            .selected_bridge()
+            .and_then(|bridge| bridge.snapshot)
+            .is_some_and(|snapshot| snapshot.connection_state.is_connected());
         self.widgets.refresh_button.set_sensitive(idle);
         self.widgets.add_bridge_button.set_sensitive(idle);
         self.widgets.settings_button.set_sensitive(idle);
         self.widgets.folder_category.set_sensitive(idle && valid);
-        self.widgets.sync_button.set_sensitive(idle && valid);
+        self.widgets
+            .sync_button
+            .set_sensitive(idle && valid && connected);
         self.widgets.open_library_button.set_sensitive(valid);
     }
 }
@@ -3829,15 +3963,20 @@ fn confirm_remove_bridge(
     editor: &adw::Window,
     registration: BridgeRegistration,
 ) {
+    let config = match load_editable_config(&registration.config_path) {
+        Ok(config) => config,
+        Err(error) => {
+            ui.show_error(&format!("Could not read Folder for removal: {error:#}"));
+            return;
+        }
+    };
     let dialog = gtk::MessageDialog::builder()
         .transient_for(editor)
         .modal(true)
         .message_type(gtk::MessageType::Warning)
         .buttons(gtk::ButtonsType::Cancel)
         .text(format!("Remove “{}”?", registration.name))
-        .secondary_text(
-            "This only removes the Folder from MiRelay. Its configuration, state, and files remain. For legacy connections, shared server credentials are NOT revoked.",
-        )
+        .secondary_text(connection::removal_message(config.connection_state))
         .build();
     dialog.add_button("Remove", gtk::ResponseType::Accept);
     let ui = Rc::clone(ui);
@@ -3859,6 +3998,11 @@ fn confirm_remove_bridge(
             }) {
                 Ok(()) => {
                     ui.tokens.borrow_mut().remove(&registration.id);
+                    if let Err(error) = clean_exit::forget_receipt(&ui.paths, &registration) {
+                        ui.show_error(&format!(
+                            "Folder removed; its local receipt could not be deleted: {error:#}"
+                        ));
+                    }
                     editor.close();
                     ui.widgets
                         .toast_overlay
@@ -3922,6 +4066,7 @@ fn sync_registered_bridge_with_events(
     token: Option<&str>,
     emit: &dyn Fn(SyncEvent),
 ) -> Result<SyncResult> {
+    let _operation = clean_exit::operation_lock(config_path)?;
     let config = load_registered_config(registry, bridge_id, config_path)?;
     config.require_connected()?;
     if config.directory_sync {
@@ -3941,6 +4086,7 @@ fn execute_sync_requests(
     execute_sync_requests_with_events(registry, requests, &|_, _| {})
 }
 
+#[cfg(test)]
 fn execute_sync_requests_with_events(
     registry: &BridgeRegistryStore,
     requests: Vec<SyncRequest>,
@@ -3973,7 +4119,19 @@ fn automatic_sync_requests(
     bridges
         .iter()
         .filter(|bridge| {
-            bridge.registration.auto_receive && bridge.error.is_none() && bridge.snapshot.is_some()
+            if bridge.error.is_some() {
+                return false;
+            }
+            let Some(snapshot) = &bridge.snapshot else { return false; };
+            match snapshot.connection_state {
+                crate::config::ConnectionState::Connected => bridge.registration.auto_receive,
+                crate::config::ConnectionState::ExitPending | crate::config::ConnectionState::ExitLocalCleaned => {
+                    load_editable_config(&bridge.registration.config_path).is_ok_and(|c|
+                        matches!(c.connection_state, crate::config::ConnectionState::ExitPending | crate::config::ConnectionState::ExitLocalCleaned)
+                        && (tokens.contains_key(&bridge.registration.id) || matches!(&c.server, ServerConfig::Http { token_env, .. } if std::env::var(token_env).is_ok())))
+                }
+                _ => false,
+            }
         })
         .map(|bridge| SyncRequest {
             bridge_id: bridge.registration.id.clone(),
@@ -4000,7 +4158,14 @@ fn load_snapshot_and_resources(config_path: &Path) -> Result<(BridgeSnapshot, Br
 }
 
 fn snapshot_from_config(config: Config) -> Result<BridgeSnapshot> {
-    if config.directory_sync {
+    if config.directory_sync
+        && !matches!(
+            config.connection_state,
+            crate::config::ConnectionState::ExitPending
+                | crate::config::ConnectionState::ExitLocalCleaned
+                | crate::config::ConnectionState::Exited
+        )
+    {
         return directory_panel::snapshot(config);
     }
     let store = StateStore::new(config.storage.state_file.clone());
@@ -4040,6 +4205,7 @@ fn snapshot_from_config(config: Config) -> Result<BridgeSnapshot> {
     });
 
     Ok(BridgeSnapshot {
+        connection_state: config.connection_state,
         name,
         device_id: config.device_id,
         source_label,
@@ -4294,7 +4460,7 @@ fn bridge_row(bridge: &BridgeView, unread: bool, sync_failed: bool) -> gtk::List
 
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     content.add_css_class("bridge-row");
-    let icon = gtk::Image::from_icon_name(bridge.registration.kind.icon_name());
+    let icon = gtk::Image::from_icon_name(brand::folder_icon(bridge.registration.kind));
     icon.set_pixel_size(16);
     icon.add_css_class("bridge-icon");
     content.append(&icon);
@@ -4510,7 +4676,8 @@ fn load_desktop_css(provider: &gtk::CssProvider, dark: bool) {
          @define-color accent_bg_color #181818;\n\
          @define-color accent_fg_color #ffffff;\n\
          @define-color accent_color {text_accent};\n\
-         {variables}\n{DESKTOP_CSS}"
+         {variables}\n{DESKTOP_CSS}\n{}",
+        include_str!("desktop/design_v2.css")
     ));
 }
 

@@ -19,7 +19,8 @@ import java.io.File
 class UploadWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     private val app = context.applicationContext as RelayApplication
     private val store = app.store
-    override fun doWork(): Result {
+    override fun doWork(): Result = FolderWorkGate.work { workLocked() }
+    private fun workLocked(): Result {
         val transferId = inputData.getString("transfer_id") ?: return Result.failure()
         val workId = id.toString()
         val transfer = store.transfer(transferId) ?: return Result.failure()

@@ -31,6 +31,75 @@ class AutoStoreTest {
         folder = store.saveFolder(null, "Auto test", "https://example.com", "secret", false)
     }
     @After fun close() { store.close() }
+    /** Real upgraded phone: legacy Remove kept empty lock inodes, not payloads.
+     * Such unrelated locks must not prevent retiring a newly paired Folder. */
+    @Test fun exitIgnoresLegacyEmptyLockInodesWithoutDeletingThem() {
+        val dir = store.directory(UUID.randomUUID().toString()); dir.mkdirs()
+        val lock = java.io.File(dir, "resume.json.lock")
+        try {
+            assertTrue(lock.createNewFile())
+            assertEquals(emptySet<String>(), store.cleanupTransfers(folder))
+            assertTrue(lock.isFile)
+            assertEquals(0L, lock.length())
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun exitStillRejectsLegacyLockWithDataOrPayloadBesideAnEmptyLock() {
+        val dir = store.directory(UUID.randomUUID().toString()); dir.mkdirs()
+        val lock = java.io.File(dir, "resume.json.lock")
+        try {
+            lock.writeText("unexpected data")
+            assertTrue(runCatching { store.cleanupTransfers(folder) }.isFailure)
+            assertEquals("unexpected data", lock.readText())
+            lock.writeText("")
+            val payload = java.io.File(dir, "payload.part"); payload.writeText("unknown owner")
+            assertTrue(runCatching { store.cleanupTransfers(folder) }.isFailure)
+            assertEquals("unknown owner", payload.readText())
+            assertTrue(lock.isFile)
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun exitDoesNotTreatLinkedLegacyLockAsAnEmptyRegularLock() {
+        val dir = store.directory(UUID.randomUUID().toString()); dir.mkdirs()
+        val target = java.io.File(dir, "keep-empty"); target.createNewFile()
+        val link = java.io.File(dir, "resume.json.lock")
+        try {
+            java.nio.file.Files.createSymbolicLink(link.toPath(), target.toPath())
+            assertTrue(runCatching { store.cleanupTransfers(folder) }.isFailure)
+            assertTrue(java.nio.file.Files.isSymbolicLink(link.toPath()))
+            assertTrue(target.isFile)
+        } finally { java.nio.file.Files.deleteIfExists(link.toPath()); dir.deleteRecursively() }
+    }
+    @Test fun exitFindsUncommittedStagingButDoesNotClaimAnotherFoldersFiles() {
+        val id = UUID.randomUUID().toString()
+        val other = UUID.randomUUID().toString()
+        val first = store.directory(id); val second = store.directory(other)
+        first.mkdirs(); second.mkdirs()
+        try {
+            java.io.File(first, "folder-owner").writeText(folder)
+            java.io.File(first, "payload.part").writeText("interrupted copy")
+            java.io.File(second, "folder-owner").writeText(UUID.randomUUID().toString())
+            java.io.File(second, "payload").writeText("other Folder")
+            assertEquals(setOf(id), store.cleanupTransfers(folder))
+            assertEquals("other Folder", java.io.File(second, "payload").readText())
+        } finally { first.deleteRecursively(); second.deleteRecursively() }
+    }
+    @Test fun exitRejectsUnattributedLegacyPayloadWithoutDeletingIt() {
+        val dir = store.directory(UUID.randomUUID().toString()); dir.mkdirs()
+        try {
+            val payload = java.io.File(dir, "payload.part"); payload.writeText("unknown owner")
+            assertTrue(runCatching { store.cleanupTransfers(folder) }.isFailure)
+            assertEquals("unknown owner", payload.readText())
+        } finally { dir.deleteRecursively() }
+    }
+    @Test fun exitRejectsOwnershipThatDisagreesWithTheQueue() {
+        val id = UUID.randomUUID().toString()
+        val dir = store.directory(id); dir.mkdirs()
+        try {
+            store.addTransfer(id, folder, "keep.bin", 42)
+            java.io.File(dir, "folder-owner").writeText(UUID.randomUUID().toString())
+            assertTrue(runCatching { store.cleanupTransfers(folder) }.isFailure)
+            assertNotNull(store.transfer(id))
+        } finally { dir.deleteRecursively() }
+    }
     private fun file(id: String = "new", size: Long? = 42, modified: Long? = 1) = SourceFile(id, Uri.parse("content://test/tree/root/document/$id"), "$id.bin", size, modified)
     private fun enable(files: List<SourceFile> = emptyList(), target: String = folder) = store.automatic.enable(target, "content://test/tree/root", "Source", true, files, 0)
 
@@ -39,11 +108,12 @@ class AutoStoreTest {
         val id = UUID.randomUUID().toString()
         store.addTransfer(id, folder, "keep.bin", 42)
         store.setFolderKind(folder, FolderKind.PHOTOS)
+        store.writableDatabase.execSQL("ALTER TABLE folders DROP COLUMN exit_phase")
         store.writableDatabase.version = 5
         store.close()
         val context = RuntimeEnvironment.getApplication()
         store = RelayStore(context, cipher)
-        assertEquals(6, store.readableDatabase.version)
+        assertEquals(7, store.readableDatabase.version)
         assertEquals(source, store.automatic.source(folder))
         assertEquals("secret", store.token(folder))
         assertEquals(FolderKind.PHOTOS, store.folder(folder)!!.kind)
@@ -134,7 +204,7 @@ class AutoStoreTest {
             db.version = 2
         }
         store = RelayStore(context, cipher); store.refresh()
-        assertEquals(6, store.readableDatabase.version)
+        assertEquals(7, store.readableDatabase.version)
         assertEquals("old-secret", store.token(folder)); assertEquals("legacy", store.folder(folder)!!.pairingState)
         val source = store.automatic.source(folder)!!
         assertTrue(source.enabled); assertFalse(source.prepared); assertEquals("old-revision", source.revision)
@@ -244,6 +314,6 @@ class AutoStoreTest {
         store = RelayStore(context, cipher); store.refresh()
         assertEquals("secret", store.token("legacy")); assertEquals("delivery", store.transfer("receipt")!!.deliveryId)
         assertEquals("owner", store.transfer("receipt")!!.workId); assertNull(store.transfer("receipt")!!.autoRevision)
-        assertEquals(6, store.readableDatabase.version); assertTrue(store.automatic.sources.value.isEmpty())
+        assertEquals(7, store.readableDatabase.version); assertTrue(store.automatic.sources.value.isEmpty())
     }
 }

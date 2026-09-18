@@ -13,3 +13,6 @@
 *.jks
 *.key
 *.pem
+*.p12
+*.pfx
+*.pk8

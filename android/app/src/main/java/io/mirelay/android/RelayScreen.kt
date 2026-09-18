@@ -21,6 +21,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -37,17 +38,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-private val ink = Color(0xFF171717)
-private val paper = Color(0xFFFAFAF9)
+private val ink = Color(0xFF292D30)
+private val paper = Color(0xFFF4F6F7)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory: (String) -> Unit, requestNotifications: () -> Unit) {
+    val context = LocalContext.current.applicationContext
+    val appearanceStore = remember(context) { AppearancePreferences(context) }
+    val appearance = rememberAppearance(appearanceStore)
+    val appearanceEnvironment = rememberAppearanceEnvironment()
     val dark = isSystemInDarkTheme()
     val colors = if (dark) darkColorScheme(primary = Color.White, onPrimary = ink, surface = ink, background = ink,
         surfaceContainer = Color(0xFF242424), secondary = Color(0xFFCCCCCC))
-    else lightColorScheme(primary = ink, onPrimary = Color.White, surface = paper, background = paper,
-        surfaceContainer = Color(0xFFF0F0EE), secondary = Color(0xFF60605D))
+    else lightColorScheme(primary = ink, onPrimary = Color.White, surface = Color.White, background = paper,
+        onSurface = ink, onBackground = ink, onSurfaceVariant = Color(0xFF62696E),
+        outlineVariant = Color(0x12353D43), surfaceContainer = Color(0xFFF0F3F5), secondary = Color(0xFF62696E))
+    CompositionLocalProvider(LocalAppearance provides appearance, LocalAppearanceEnvironment provides appearanceEnvironment) {
     MaterialTheme(colorScheme = colors) {
         // Capture one immutable list per composition. The lazy provider must not
         // read a newer State value while measuring an older item/key interval.
@@ -67,47 +74,67 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
         val directoryMode = autoSources.any { it.folderId == folder?.id && it.directorySync }
         var editor by remember { mutableStateOf(false) }
         var editing by remember { mutableStateOf<Folder?>(null) }
+        var appSettings by rememberSaveable { mutableStateOf(false) }
         val drawer = rememberDrawerState(DrawerValue.Closed)
         val scope = rememberCoroutineScope()
         val snackbar = remember { SnackbarHostState() }
         LaunchedEffect(error) { error?.let { snackbar.showSnackbar(it); model.error.value = null } }
 
+        RelayCanvas {
         ModalNavigationDrawer(drawerState = drawer, drawerContent = {
-            ModalDrawerSheet(Modifier.width(280.dp)) {
+            // A foreground drawer must not ghost the file names underneath.
+            // Keep it opaque instead of adding an expensive full-panel blur.
+            ModalDrawerSheet(Modifier.width(296.dp), drawerShape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+                drawerContainerColor = MaterialTheme.colorScheme.surface) {
                 // Membership changes invalidate positional scroll/measurement state;
                 // ordinary status/category updates retain the same drawer instance.
                 key(folders.map { it.id }) {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp).testTag("folder-drawer")) {
                     item("heading") {
-                        BrandWordmark(Modifier.padding(12.dp).width(128.dp).height(80.dp).testTag("drawer-brand-wordmark"))
-                        Text("Folders", Modifier.padding(12.dp), style = MaterialTheme.typography.labelMedium)
+                        Row(Modifier.fillMaxWidth().padding(start = 8.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            BrandWordmark(Modifier.width(112.dp).height(70.dp).testTag("drawer-brand-wordmark"))
+                            Spacer(Modifier.weight(1f))
+                            IconButton(onClick = { scope.launch { drawer.close() } }) { RelayIcon("close", "Close folders") }
+                        }
+                        Text("Folders", Modifier.padding(start = 16.dp, bottom = 12.dp), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(folders, key = { "folder:${it.id}" }) { item ->
                         NavigationDrawerItem(label = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             icon = { RelayIcon(item.kind.icon, item.kind.label, Modifier.testTag("folder-icon-${item.id}")) },
+                            badge = { if (item.id == folder?.id) RelayIcon("check", null, Modifier.size(16.dp)) },
                             selected = item.id == folder?.id, onClick = {
                                 model.selected.value = item.id
                                 scope.launch { drawer.close() }
                             }, shape = RoundedCornerShape(10.dp),
-                            colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = ink, selectedTextColor = Color.White, selectedIconColor = Color.White))
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                                selectedIconColor = MaterialTheme.colorScheme.onSurface))
                     }
                     item("add-folder") {
                         TextButton(onClick = { editing = null; editor = true }, enabled = !busy, modifier = Modifier.padding(vertical = 12.dp)) {
                             RelayIcon("plus", null); Spacer(Modifier.width(10.dp)); Text("Add Folder")
                         }
                     }
+                    item("settings") {
+                        TextButton(onClick = { scope.launch { drawer.close(); appSettings = true } }, modifier = Modifier.padding(bottom = 16.dp).testTag("global-settings")) {
+                            RelayIcon("settings", null); Spacer(Modifier.width(10.dp)); Text("Settings")
+                        }
+                    }
                 }
                 }
             }
         }) {
-            Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
+            Scaffold(containerColor = Color.Transparent, snackbarHost = { SnackbarHost(snackbar) }, topBar = {
                 if (folder?.kind != FolderKind.PHOTOS) {
                 TopAppBar(modifier = Modifier.testTag("brand-top-bar"),
-                    title = { BrandWordmark(Modifier.width(104.dp).height(65.dp).testTag("brand-wordmark")) },
-                    expandedHeight = 72.dp,
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = if (appearance.reduceTransparency) MaterialTheme.colorScheme.background else Color.Transparent),
+                    title = { BrandWordmark(Modifier.width(88.dp).height(55.dp).testTag("brand-wordmark")) },
+                    expandedHeight = 64.dp,
                     actions = {
                         if (folder != null) TextButton(enabled = !busy && !folder.connectionClosed, onClick = { model.openAuto(folder.id) }) {
-                            Text(if (autoSources.any { it.folderId == folder.id && it.enabled }) "Auto on" else "Auto")
+                            Text(if (autoSources.any { it.folderId == folder.id && it.enabled }) "Auto on" else "Auto", style = MaterialTheme.typography.labelMedium)
                         }
                         if (folder != null) IconButton(enabled = !busy, onClick = { editing = folder; editor = true }) { RelayIcon("settings", "Folder settings") }
                         IconButton(onClick = { scope.launch { drawer.open() } }) { RelayIcon("menu", "Folders") }
@@ -129,38 +156,45 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                             folders = { scope.launch { drawer.open() } }, settings = { editing = folder; editor = true },
                             syncSettings = { model.openAuto(folder.id) }, general = { model.setFolderKind(folder.id, FolderKind.GENERAL) },
                             chooseFiles = chooseFiles, refreshReceipts = { model.refreshReceipts(folder.id) }, checkPairing = { model.checkPairing(folder.id) },
-                            retry = { model.retry(it) }, pause = { model.pause(it) })
+                            retry = { model.retry(it) }, pause = { model.pause(it) }, appearanceSettings = { appSettings = true })
                     }
                 } else {
                     val files = remember(transfers, folder.id) {
-                        transfers.filter { it.folderId == folder.id }.sortedBy { if (it.status in listOf(TransferStatus.UPLOADING, TransferStatus.QUEUED)) 0 else 1 }
+                        transfers.filter { it.folderId == folder.id }
                     }
+                    val sections = remember(files) { transferSections(files) }
                     // Header, transfers and receipt note share one viewport. Fixed siblings
                     // must not consume the list's height in landscape, split-screen or large text.
-                    BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
+                    Surface(Modifier.padding(padding).padding(start = 12.dp, end = 12.dp, bottom = 12.dp).fillMaxSize().testTag("files-panel"),
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = if (appearance.reduceTransparency) 1f else 0.76f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
                         val compact = maxHeight < 400.dp && maxWidth >= 480.dp
                         key(folder.id) {
-                            LazyColumn(Modifier.fillMaxSize().testTag("folder-content"), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)) {
+                            LazyColumn(Modifier.fillMaxSize().testTag("folder-content"), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp)) {
                                 item("heading") {
                                     if (compact) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                                        FolderHeading(folder, Modifier.weight(1f), compact = true) { model.setFolderKind(folder.id, it) }
+                                        FolderHeading(folder, Modifier.weight(1f), compact = true, source = autoSources.find { it.folderId == folder.id }) { model.setFolderKind(folder.id, it) }
                                         BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy && !folder.connectionClosed) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
                                     } else Column {
-                                        FolderHeading(folder) { model.setFolderKind(folder.id, it) }
-                                        Spacer(Modifier.height(20.dp))
+                                        FolderHeading(folder, source = autoSources.find { it.folderId == folder.id }) { model.setFolderKind(folder.id, it) }
+                                        Spacer(Modifier.height(12.dp))
                                         BlackButton(if (busy) "Preparing…" else if (directoryMode) "Sync settings" else "Choose files", if(directoryMode) "folder" else "upload", !busy && !folder.connectionClosed) { if(directoryMode) model.openAuto(folder.id) else chooseFiles() }
                                     }
                                     if (folder.pairingState != "legacy") {
                                         Spacer(Modifier.height(12.dp))
-                                        Text(folder.connectionLabel,
-                                            style = MaterialTheme.typography.bodySmall)
+                                        if (!pairedForDisplay(folder)) Text(folder.connectionLabel, style = MaterialTheme.typography.bodySmall)
                                         folder.verification?.let { Text("Verification: $it", fontWeight = FontWeight.Medium) }
                                         if (folder.pairingState != "ready" && !folder.connectionClosed) Text("Compare this code on Linux and confirm there, then check pairing here.", style = MaterialTheme.typography.bodySmall)
                                         TextButton(enabled = !busy && !folder.connectionClosed, onClick = { model.checkPairing(folder.id) }) { Text("Check pairing") }
                                     }
                                 }
                                 item("transfers-heading") {
-                                    Text("Transfers", Modifier.padding(top = 20.dp, bottom = 12.dp), fontWeight = FontWeight.Medium)
+                                    Row(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Transfers", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                                        Text(if (files.size == 1) "1 file" else "${files.size} files", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                 }
                                 if (files.isEmpty()) item("empty") {
@@ -170,8 +204,15 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                                         Text(if(directoryMode) "Up to date, or waiting for the next directory check." else "Choose files, or share them from another app.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                items(files, key = { "transfer:${it.id}" }) { transfer ->
-                                    TransferRow(transfer, busy || folder.connectionClosed, { model.retry(transfer.id) }, { model.pause(transfer.id) })
+                                sections.forEach { (section, entries) ->
+                                    item("section:${section.name}") {
+                                        Text(section.label, Modifier.padding(top = 20.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    items(entries, key = { "transfer:${it.id}" }) { transfer ->
+                                        TransferRow(transfer, busy || folder.connectionClosed, { model.retry(transfer.id) }, { model.pause(transfer.id) })
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    }
                                 }
                                 item("receipt-note") {
                                     Text(if(directoryMode) "Waiting for Linux means uploaded, not yet received. Receipts refresh with directory checks; conflicts keep both copies on Linux." else "Uploads are confirmed by your server. Linux delivery receipts are not available for delivery-only files.",
@@ -182,12 +223,16 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
                             }
                         }
                     }
+                    }
                 }
             }
         }
+        }
+        if (appSettings) AppearanceDialog(appearance, appearanceStore) { appSettings = false }
         if (editor) FolderEditor(editing?.let { old -> folders.find { it.id == old.id } ?: old }, busy, error, creationTree,
             chooseDirectory = { chooseDirectory("new-folder") },
             disconnect = { id -> model.disconnectFolder(id) },
+            cleanExit = { id -> model.cleanExit(id) },
             remove = { id -> model.removeFolder(id) { editor = false; editing = null } },
             onDismiss = { if (!busy) { editor = false; model.creationTree.value = null } }) { name, url, token, insecure, code, history, kind ->
             model.saveFolder(editing, name, url, token, insecure, code, history, kind) { editor = false }
@@ -221,11 +266,13 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
         }
     }
 }
+}
 
 @Composable internal fun BrandWordmark(modifier: Modifier) {
-    // Do not crop or tint the supplied opaque artwork, even in dark mode.
-    Image(painterResource(R.drawable.mirelay_wordmark), contentDescription = stringResource(R.string.mirelay_brand_description),
-        modifier = modifier.clip(RoundedCornerShape(8.dp)).background(Color.White),
+    // Only the exterior canvas was removed offline. Keep the sticker's white
+    // outline and full framing; no recoloring, blur, or runtime pixel processing.
+    Image(painterResource(R.drawable.mirelay_wordmark_transparent), contentDescription = stringResource(R.string.mirelay_brand_description),
+        modifier = modifier,
         contentScale = ContentScale.Fit, alignment = Alignment.CenterStart)
 }
 
@@ -325,22 +372,52 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
         dismissButton={TextButton(enabled=!busy,onClick=close) {Text("Close")}})
 }
 
-@Composable private fun FolderHeading(folder: Folder, modifier: Modifier = Modifier, compact: Boolean = false, selectKind: (FolderKind) -> Unit) {
+@Composable private fun FolderHeading(folder: Folder, modifier: Modifier = Modifier, compact: Boolean = false, source: AutoSource? = null, selectKind: (FolderKind) -> Unit) {
     var menu by remember(folder.id) { mutableStateOf(false) }
+    var details by rememberSaveable(folder.id) { mutableStateOf(false) }
     Column(modifier) {
-        Box {
-            TextButton(onClick={menu=true},modifier=Modifier.testTag("folder-kind"),contentPadding=PaddingValues(horizontal=0.dp)) {
-                RelayIcon(folder.kind.icon,null,Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text(folder.kind.label)
-            }
-            DropdownMenu(expanded=menu,onDismissRequest={menu=false}) {
-                FolderKind.entries.forEach { option -> DropdownMenuItem(text={Text(option.label)},leadingIcon={RelayIcon(option.icon,null)},
-                    onClick={menu=false;selectKind(option)},modifier=Modifier.testTag("kind-${option.key}")) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            RelayIcon(folder.kind.icon, null, Modifier.size(if (compact) 28.dp else 36.dp))
+            Text(folder.name, Modifier.weight(1f), fontSize = if (compact) 22.sp else 26.sp,
+                lineHeight = if (compact) 28.sp else 32.sp, fontWeight = FontWeight.Medium,
+                maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+            IconToggleButton(checked = details, onCheckedChange = { details = it }, modifier = Modifier.testTag("folder-details-toggle")) {
+                RelayIcon("info", "Folder details", Modifier.size(20.dp))
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(folder.name, fontSize = if (compact) 22.sp else 28.sp, fontWeight = FontWeight.SemiBold, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(4.dp))
-        Text(folder.server, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box {
+                TextButton(onClick={menu=true}, modifier=Modifier.testTag("folder-kind"), contentPadding=PaddingValues(horizontal=0.dp)) {
+                    Text(folder.kind.label, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(4.dp)); RelayIcon("chevron-down", null, Modifier.size(14.dp))
+                }
+                DropdownMenu(expanded=menu,onDismissRequest={menu=false}) {
+                    FolderKind.entries.forEach { option -> DropdownMenuItem(text={Text(option.label)},leadingIcon={RelayIcon(option.icon,null)},
+                        onClick={menu=false;selectKind(option)},modifier=Modifier.testTag("kind-${option.key}")) }
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            if (pairedForDisplay(folder)) {
+                RelayIcon("link", null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp))
+                Text("Paired", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else Text(if (folder.exitPhase == "complete") "Exited" else if (folder.exitPhase != null) "Exit pending" else if (folder.pairingState == "legacy") "Legacy connection" else if (folder.connectionClosed) "Disconnected" else "Pairing needed",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (details) {
+            Column(Modifier.fillMaxWidth().testTag("folder-details").background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Server", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(folder.server, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("folder-server"))
+                }
+                if (source != null) {
+                    Text("Directory", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(source.name, style = MaterialTheme.typography.bodySmall)
+                    Text(if (source.directorySync) "Directory sync" else "Automatic sending", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 }
 
@@ -356,13 +433,16 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     val active = file.status in listOf(TransferStatus.QUEUED, TransferStatus.UPLOADING)
     Column(Modifier.padding(vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            RelayIcon("file", null, Modifier.size(20.dp)); Spacer(Modifier.width(14.dp))
+            Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                RelayIcon("file", null, Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(file.relativePath ?: file.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.height(4.dp))
                 val label = when (file.status) {
                     TransferStatus.QUEUED -> if (file.error == null) "Queued" else "Waiting to retry"
-                    TransferStatus.UPLOADING -> "Uploading · ${((file.uploaded.toDouble() / file.size) * 100).toInt().coerceIn(0, 100)}%"
+                    TransferStatus.UPLOADING -> "Uploading · ${(transferProgress(file.uploaded, file.size) * 100).toInt()}%"
                     TransferStatus.PAUSED -> "Paused"
                     TransferStatus.FAILED -> "Needs attention"
                     TransferStatus.UPLOADED -> if(file.relativePath==null) "Uploaded" else if(file.superseded) "Superseded" else if(file.received) if(file.conflict) "Synced · conflict copy kept" else "Synced" else "Waiting for Linux"
@@ -373,15 +453,15 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
             else if (file.status != TransferStatus.UPLOADED) IconButton(onClick = retry, enabled = !busy) { RelayIcon("play", "Resume or retry transfer") }
         }
         if (file.status == TransferStatus.UPLOADING) LinearProgressIndicator(
-            progress = { (file.uploaded.toFloat() / file.size).coerceIn(0f, 1f) },
-            modifier = Modifier.padding(start = 34.dp, top = 10.dp).fillMaxWidth().height(2.dp))
-        file.error?.let { Text(it, Modifier.padding(start = 34.dp, top = 8.dp), color = MaterialTheme.colorScheme.error,
+            progress = { transferProgress(file.uploaded, file.size) },
+            modifier = Modifier.padding(start = 42.dp, top = 10.dp).fillMaxWidth().height(2.dp))
+        file.error?.let { Text(it, Modifier.padding(start = 42.dp, top = 8.dp), color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, maxLines = 5, overflow = TextOverflow.Ellipsis) }
     }
 }
 
 @Composable private fun FolderEditor(folder: Folder?, busy: Boolean, failure: String?, tree: android.net.Uri?, chooseDirectory: () -> Unit,
-    disconnect: (String) -> Unit, remove: (String) -> Unit,
+    disconnect: (String) -> Unit, cleanExit: (String) -> Unit, remove: (String) -> Unit,
     onDismiss: () -> Unit, save: (String, String, String, Boolean, String, Boolean, FolderKind) -> Unit) {
     var action by remember(folder?.id) { mutableStateOf<String?>(null) }
     var name by rememberSaveable(folder?.id) { mutableStateOf(folder?.name.orEmpty()) }
@@ -397,27 +477,56 @@ fun RelayScreen(model: RelayViewModel, chooseFiles: () -> Unit, chooseDirectory:
     var kindKey by rememberSaveable(folder?.id) { mutableStateOf((folder?.kind ?: FolderKind.GENERAL).key) }
     if (folder != null && action != null) AlertDialog(
         onDismissRequest = { if (!busy) action = null },
-        title = { Text(if (action == "disconnect") "Disconnect Folder?" else "Remove Folder?") },
-        text = { Text(if (action == "disconnect")
+        title = { Text(when(action) { "exit" -> "Clean exit from this Folder?"; "disconnect" -> "Disconnect Folder?"; else -> "Remove Folder?" }) },
+        text = { Text(if (action == "exit")
+            "Permanently stop both devices and delete this Folder's relay files, unfinished uploads and local MiRelay staging/history. Phone originals and Linux received files stay in place. Pending files will no longer be delivered. The other device must finish its local cleanup; keep the exit receipt until both devices confirm."
+            else if (action == "disconnect")
             "Stop this Folder's local tasks and permanently revoke both devices' access to this relay Folder. Reconnecting requires a new Folder. Existing files stay in place; an already authorized request may finish."
             else "Remove this Folder, its credential and local transfer history from MiRelay. Original, received and privately staged files are kept. This cannot be undone." +
                 if (!folder.scoped) " This is local removal only: the shared server token and the other device remain authorized." else "") },
         confirmButton = { TextButton(enabled = !busy, onClick = {
             val choice = action; action = null
-            if (choice == "disconnect") disconnect(folder.id) else remove(folder.id)
-        }) { Text(if (action == "disconnect") "Disconnect" else "Remove") } },
+            when(choice) { "exit" -> cleanExit(folder.id); "disconnect" -> disconnect(folder.id); else -> remove(folder.id) }
+        }) { Text(when(action) { "exit" -> "Clean exit"; "disconnect" -> "Disconnect"; else -> "Remove" }) } },
         dismissButton = { TextButton(enabled = !busy, onClick = { action = null }) { Text("Cancel") } })
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (folder == null) "Add Folder" else "Folder settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (folder != null) {
                     Text(folder.connectionLabel)
-                    if (folder.scoped && folder.pairingState != "disconnected") TextButton(enabled = !busy,
-                        onClick = { action = "disconnect" }, modifier = Modifier.testTag("disconnect-folder")) {
+                    if (folder.scoped && folder.exitPhase != "complete" && folder.pairingState != "disconnected") {
+                        OutlinedButton(enabled = !busy, onClick = {
+                            if (folder.exitPhase == null) action = "exit" else cleanExit(folder.id)
+                        }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("clean-exit-folder"),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                            Text(if (folder.exitPhase == null) "Clean exit" else "Retry / check clean exit")
+                        }
+                    }
+                    if (folder.scoped && folder.pairingState != "disconnected" && folder.exitPhase == null) OutlinedButton(enabled = !busy,
+                        onClick = { action = "disconnect" },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("disconnect-folder")) {
                         Text(if (folder.pairingState == "disconnect_pending") "Retry disconnect" else "Disconnect Folder")
                     }
-                    TextButton(enabled = !busy && (!folder.scoped || folder.pairingState == "disconnected"),
-                        onClick = { action = "remove" }, modifier = Modifier.testTag("remove-folder")) { Text(if (folder.scoped) "Remove Folder" else "Remove locally") }
+                    val canRemove = !busy && (!folder.scoped || folder.pairingState == "disconnected") && (folder.exitPhase == null || folder.exitPhase == "complete")
+                    OutlinedButton(enabled = canRemove, onClick = { action = "remove" },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("remove-folder"),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, if (canRemove) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        RelayIcon("trash", null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (folder.scoped) "Remove Folder" else "Remove locally")
+                    }
+                    Text("Original files stay on this device.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (folder.exitPhase != null && folder.exitPhase != "complete") Text(
+                        "Keep this receipt until both devices and the relay finish cleanup.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else if (folder.scoped && folder.pairingState != "disconnected") Text(
+                        "Disconnect this Folder before removing it.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, enabled = !busy)
                 OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, placeholder = { Text("https://relay.example.com") },
@@ -478,10 +587,24 @@ private fun fileSize(bytes: Long): String = when {
 }
 
 @Composable internal fun RelayIcon(name: String, description: String?, modifier: Modifier = Modifier) {
+    val supplied = when (name) {
+        "folder" -> R.drawable.relay_folder
+        "photos" -> R.drawable.relay_photos
+        "link" -> R.drawable.relay_link
+        else -> null
+    }
+    if (supplied != null) {
+        Icon(painterResource(supplied), description, modifier)
+        return
+    }
     val vector = remember(name) {
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             path(fill = null, stroke = SolidColor(Color.Black), strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {
                 when (name) {
+                    "trash" -> { moveTo(3f, 6f); lineTo(21f, 6f); moveTo(9f, 6f); lineTo(9f, 3f); lineTo(15f, 3f); lineTo(15f, 6f); moveTo(5f, 6f); lineTo(6f, 21f); lineTo(18f, 21f); lineTo(19f, 6f); moveTo(10f, 10f); lineTo(10f, 17f); moveTo(14f, 10f); lineTo(14f, 17f) }
+                    "close" -> { moveTo(6f, 6f); lineTo(18f, 18f); moveTo(18f, 6f); lineTo(6f, 18f) }
+                    "check" -> { moveTo(5f, 12f); lineTo(10f, 17f); lineTo(19f, 7f) }
+                    "chevron-down" -> { moveTo(6f, 9f); lineTo(12f, 15f); lineTo(18f, 9f) }
                     "scan" -> { moveTo(8f,3f); lineTo(3f,3f); lineTo(3f,8f); moveTo(16f,3f); lineTo(21f,3f); lineTo(21f,8f); moveTo(3f,16f); lineTo(3f,21f); lineTo(8f,21f); moveTo(21f,16f); lineTo(21f,21f); lineTo(16f,21f); moveTo(7f,12f); lineTo(17f,12f) }
                     "back" -> { moveTo(14f, 5f); lineTo(7f, 12f); lineTo(14f, 19f) }
                     "next" -> { moveTo(10f, 5f); lineTo(17f, 12f); lineTo(10f, 19f) }

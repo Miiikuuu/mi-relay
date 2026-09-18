@@ -1,0 +1,53 @@
+{
+  "date": "2026-09-16",
+  "status": "fixed_and_regression_verified",
+  "subsequent_installed_phone_retest": "docs/validation/installed-desktop-phone-exit-2026-09-18.json",
+  "resolves_findings_from": "docs/validation/phone-native-desktop-exit-2026-09-16.json",
+  "findings": ["desktop-exited-presentation", "desktop-completed-receipt-remove-copy"],
+  "dirty_checkout": true,
+  "changes": [
+    "Both delivery and directory snapshots preserve connection state",
+    "Status, icon and empty-state title/instructions distinguish connected, disconnect pending, disconnected, exit pending, waiting for peer and exited",
+    "File filtering/rendering no longer overwrites a stopped state with Ready",
+    "Receive is disabled for stopped Folders; programmatic activation is guarded while Open folder remains available",
+    "Automatic receive ignores stale enabled flags for stopped snapshots; credentialed pending-exit retries remain eligible",
+    "Completed-receipt removal explicitly describes owned-config removal and preservation of originals, locks and retirement markers; legacy removal wording retained"
+  ],
+  "rust": {
+    "report": "target/ci-reports/exit-ui-fix-verified-rust-0916/result.json",
+    "passed": 240,
+    "failed": 0,
+    "ignored": 23,
+    "new_unit_cases": 3
+  },
+  "native_ui": {
+    "report": "target/ci-reports/exit-ui-fix-verified-native-0916/result.json",
+    "test": "desktop::ui_v2_tests::native_connection_states_gate_receive_and_update_empty_copy",
+    "environment": "Isolated native GTK Broadway session and headless viewer; no real desktop or phone automation in this run",
+    "passed": 1,
+    "failed": 0,
+    "browser_exceptions": 0,
+    "coverage": [
+      "All six connection states and returning to Connected",
+      "Receive sensitivity and busy-state guard",
+      "Folder access retained while transfers are stopped",
+      "Filter refresh preserves stopped status and empty copy",
+      "Programmatic Receive activation does not start stopped work",
+      "Actual completed-exit and legacy removal dialogs use the matching copy",
+      "Cancelling both dialogs preserves the configuration"
+    ]
+  },
+  "desktop_build": {
+    "report": "target/ci-reports/exit-ui-fix-desktop-build-0916/result.json",
+    "sha256": "57e90065471a3a1dc81c6e76b9ab89835c04ac3ba8171561d39b43a5198107d7"
+  },
+  "failed_attempts_retained": [
+    "exit-ui-fix-final-build-0916: added native-dialog test used an invalid ApplicationWindow-to-adw::Window upcast; corrected the fixture to create an actual editor window and reran all tests"
+  ],
+  "limits": [
+    "One ignored graphical case was explicitly run separately; the other ignored cases were not rerun here",
+    "The physical phone end-to-end chain was not repeated after this desktop-only change",
+    "Installed desktop launcher binary was not replaced; built artifact is target/debug/mirelay-desktop",
+    "No phone data changes, relay deployment, commit or push"
+  ]
+}

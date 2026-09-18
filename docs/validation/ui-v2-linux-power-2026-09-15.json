@@ -1,0 +1,74 @@
+{
+  "date": "2026-09-15",
+  "status": "linux_power_gate_implemented_and_isolated_regressions_passed",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_worktree": true,
+  "scope": "Read-only Linux power-profile monitoring and appearance gating. No transport, Folder schema, token, Auto or Android changes in this slice.",
+  "rust_tests": { "passed": 230, "failed": 0, "ignored": 21 },
+  "private_bus": {
+    "final_test_passed": true,
+    "cases": [
+      "absent services",
+      "legacy fallback",
+      "power saver and balanced transitions",
+      "invalidated property read",
+      "modern interface precedence",
+      "unknown profile pauses motion",
+      "conflicting alias saver wins",
+      "service name loss and reappearance",
+      "whole bus disconnect does not exit app",
+      "failed reconnect stays unavailable",
+      "drop during startup suppresses late callbacks"
+    ],
+    "observed_property_writes": 0,
+    "extra_property_reads_during_200ms_idle_sample": 0
+  },
+  "host_probe": {
+    "passed": true,
+    "reported_state": "Normal",
+    "read_only": true,
+    "system_power_policy_changed": false
+  },
+  "native_appearance": {
+    "backend": "owned Xvfb :98 with Cairo, debug profile",
+    "final_fresh_process_runs_passed": 2,
+    "power_source": "private fake power-profile service, not the host service",
+    "saver_removes_tick_and_freezes_elapsed": true,
+    "balanced_resumes_and_unknown_pauses": true,
+    "motion_preference_unchanged": true,
+    "settings_save_error_retry_and_folder_bytes_preserved": true,
+    "samples": [
+      { "background_draws": 32, "elapsed_seconds": 1.573, "foreground_probe_draws": 0 },
+      { "background_draws": 32, "elapsed_seconds": 1.575, "foreground_probe_draws": 0 }
+    ],
+    "cached_gradient_nodes": 6,
+    "foreground_probe": "DrawingArea overlay on empty-state Add Folder action",
+    "default_off_and_system_animation_off_background_draws": 0,
+    "gtk_fatal_criticals": 0,
+    "expected_environment_warning": "Xvfb lacks DRI3 hardware acceleration"
+  },
+  "evidence": [
+    { "path": "target/ci-reports/linux-power-final-tests/result.json", "sha256": "988f4e98c51d156b4e91a0596fe1da1ce69ef473a4518f67250f76cc7ecc2383" },
+    { "path": "target/ci-reports/linux-power-private-final/result.json", "sha256": "b2f0e774aeaa3f041a8ae791218e2b46d3e2ffb804b8952e31e3a040273dfbec" },
+    { "path": "target/ci-reports/linux-power-host/result.json", "sha256": "9d0af63bcc20020fc590b6b3912e91c0302a920868384423c1cc157af4754a58" },
+    { "path": "target/ci-reports/linux-power-native-final/result.json", "sha256": "be56960b52a7b8baa914ef9e4b76d58eb3a1ee46ceb403447448a35c72c84b79" }
+  ],
+  "reviewed_screenshots": [
+    { "path": "target/appearance-x11-zrmll3kx/settings.png", "sha256": "d75e5a4976dfc57614360f25c12b4cfe4c6d136b78e802ce34fcea8687295aee" },
+    { "path": "target/appearance-x11-zrmll3kx/save-error.png", "sha256": "0291b63862d8b039d22cb96df65520c706e4b5192d4af4f6a39a6075aa6bb6ba" }
+  ],
+  "failed_attempts_retained": [
+    "linux-power-build: unavailable Variant lookup method; replaced with VariantDict before final build and tests"
+  ],
+  "limitations": [
+    "No real GPU, battery-use, release-performance or populated-album benchmark",
+    "Real host power mode was only read; no physical policy transitions tested",
+    "No deliberately delayed stale-reply race or hung-service startup-deadline integration fixture",
+    "Whole-bus recovery requires Settings Refresh power status; no periodic reconnect",
+    "Without a readable supported power service, background remains static",
+    "Complete compositor occlusion and narrow sidebar collapse remain pending",
+    "No phone install, production server access, release signing, commit or push"
+  ],
+  "format_and_diff_checks_passed": true,
+  "owned_test_processes_stopped": true
+}

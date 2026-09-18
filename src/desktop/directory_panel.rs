@@ -174,6 +174,7 @@ pub(super) fn snapshot(config: Config) -> Result<BridgeSnapshot> {
         ..Default::default()
     };
     Ok(BridgeSnapshot {
+        connection_state: config.connection_state,
         name: bridge_name_for_path(&config.storage.library_dir),
         device_id: config.device_id.clone(),
         source_label: format!("Directory sync · {url}"),

@@ -8,7 +8,7 @@ cargo build --locked --release --features desktop --bin mirelay-desktop
 
 The binary includes its icon theme and About artwork as a GResource; moving the
 binary does not require copying the repository. The following optional commands
-install a user-local executable, application-menu entry and original PNG icons.
+install a user-local executable, application-menu entry and transparent PNG icons.
 They replace files with the same names, so review any existing installation first.
 They do not change Folder configuration, restart a running app or enable autostart.
 
@@ -18,10 +18,18 @@ install -Dm644 packaging/linux/io.mirelay.Desktop.desktop \
   "$HOME/.local/share/applications/io.mirelay.Desktop.desktop"
 
 for size in 16 24 32 48 64 96 128 192 256 512 1024; do
-  install -Dm644 "assets/brand/MiRelay-brand-kit-v1/icons/png/mirelay-${size}.png" \
+  install -Dm644 "assets/ui/v2/brand/icons/mirelay-${size}.png" \
     "$HOME/.local/share/icons/hicolor/${size}x${size}/apps/io.mirelay.Desktop.png"
 done
+update-desktop-database "$HOME/.local/share/applications"
+gtk-update-icon-cache --force --ignore-theme-index "$HOME/.local/share/icons/hicolor"
 ```
+
+The transparent launcher sizes are deterministic derivatives of the original
+sticker artwork. Only the outside white canvas is removed; the sticker outline,
+shadow and original framing remain. Regenerate with
+`python3 scripts/prepare_brand_icon.py` (Pillow required). The original brand kit
+is unchanged, and these Linux assets do not change Android's adaptive icon.
 
 Ensure `$HOME/.local/bin` is on the graphical session's `PATH`, then reopen the
 application menu or log in again if the desktop has cached its entries. The

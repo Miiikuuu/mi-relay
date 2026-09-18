@@ -435,7 +435,7 @@ fn version_two_database_migrates_without_changing_legacy_content() {
         .unwrap();
     let db = rusqlite::Connection::open(root.path().join("server/mirelay-server.sqlite3")).unwrap();
     db.execute_batch(
-        "DROP TABLE directory_versions; DROP TABLE directory_indexes; ALTER TABLE folders DROP COLUMN disconnected; PRAGMA user_version=2;",
+        "DROP TABLE folder_exits; DROP TABLE directory_versions; DROP TABLE directory_indexes; ALTER TABLE folders DROP COLUMN disconnected; PRAGMA user_version=2;",
     )
     .unwrap();
     store.initialize().unwrap();
@@ -444,7 +444,7 @@ fn version_two_database_migrates_without_changing_legacy_content() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
     assert_eq!(
         store

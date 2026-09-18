@@ -63,6 +63,10 @@ impl Sender {
         );
         let state = state_root.path().to_path_buf();
         let lock = StateStore::new(state.join("sender.json")).lock_exclusive()?;
+        ensure!(
+            !state.join("retired.json").exists(),
+            "This sender has exited; create a new Folder to reconnect."
+        );
         let root_lock = root.lock_sender()?;
         let metadata = fs::metadata(root.path())?;
         let ledger = match load::<Ledger>(&state.join("sender.json"))? {

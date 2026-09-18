@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-15",
+  "status": "adaptive_navigation_and_isolated_hardware_backdrop_checks_passed",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_worktree": true,
+  "scope": "Linux native responsive Folder sidebar, retained resizing and isolated offscreen GPU QA. No transport, Folder schema, credential, Auto, Android or release-signing changes in this slice.",
+  "rust_tests": { "passed": 231, "failed": 0, "ignored": 22 },
+  "native_layout": {
+    "backend": "private Broadway and headless viewer",
+    "final_runs_passed": 2,
+    "width_sequence": [1000, 820, 640, 560, 820, 560, 1000],
+    "single_sidebar_instance": true,
+    "retained_search_and_folder_actions": true,
+    "explicit_activation_and_close_button_dismiss": true,
+    "programmatic_selection_does_not_dismiss": true,
+    "bounded_drag_handlers_exercised": true,
+    "repeated_general_photos_details_preserved": true,
+    "gtk_warnings_or_criticals": 0,
+    "browser_exceptions": 0
+  },
+  "native_motion": {
+    "final_runs_passed": 1,
+    "backend": "owned Xvfb, Cairo, exact-PID focus driver",
+    "background_draws": 32,
+    "elapsed_seconds": 1.534,
+    "foreground_probe_draws": 0,
+    "cached_gradient_nodes": 6,
+    "default_off_and_system_animation_off_background_draws": 0,
+    "private_power_service_transitions": true,
+    "settings_save_error_retry_and_neighboring_folder_bytes_preserved": true,
+    "expected_warning": "Xvfb DRI3 acceleration unavailable"
+  },
+  "hardware_backdrop": {
+    "backend": "private headless Weston 14.0.2, OpenGL ES, no physical display connection",
+    "gtk_renderer": "GskGLRenderer",
+    "gtk_and_compositor_device": "/dev/dri/renderD129",
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "driver": "610.43.02",
+    "build_profile": "debug",
+    "final_runs_passed": 3,
+    "samples_per_size_per_run": 60,
+    "warmup_frames_per_size": 5,
+    "metric": "wall time for backdrop snapshot plus GPU render_texture plus explicit readback; not physical display FPS or GPU-only time",
+    "nonempty_and_changing_pixels_asserted": true,
+    "cached_gradient_nodes": 6,
+    "cpu_ticks_per_second": 100,
+    "idle_samples": [
+      { "wall_seconds": 1.002, "process_cpu_ticks": 0, "backdrop_redraws": 0 },
+      { "wall_seconds": 1.001, "process_cpu_ticks": 1, "backdrop_redraws": 0 },
+      { "wall_seconds": 1.000, "process_cpu_ticks": 0, "backdrop_redraws": 0 }
+    ],
+    "runs": [
+      { "report": "target/appearance-gpu-mm_7bzyl", "1000x680": { "p50_ms": 1.588, "p95_ms": 2.230, "max_ms": 2.897 }, "560x680": { "p50_ms": 1.901, "p95_ms": 3.263, "max_ms": 3.683 } },
+      { "report": "target/appearance-gpu-etdoatfh", "1000x680": { "p50_ms": 1.533, "p95_ms": 2.151, "max_ms": 2.555 }, "560x680": { "p50_ms": 1.322, "p95_ms": 2.487, "max_ms": 3.230 } },
+      { "report": "target/appearance-gpu-x08hm7n_", "1000x680": { "p50_ms": 1.487, "p95_ms": 1.774, "max_ms": 4.361 }, "560x680": { "p50_ms": 1.085, "p95_ms": 1.353, "max_ms": 4.037 } }
+    ]
+  },
+  "evidence": [
+    { "path": "target/ci-reports/linux-adaptive-handoff-tests/result.json", "sha256": "e6b92f71367fe107dc62696b513803aa407584d7f302e117273a863139aa7335" },
+    { "path": "target/ci-reports/linux-adaptive-handoff-layout/result.json", "sha256": "ff23ac326a03907df2c3664126dcd8b82fec834be9af41b63a7320e1baf25b03" },
+    { "path": "target/ci-reports/linux-adaptive-handoff-gpu/result.json", "sha256": "9f5f3690e37c332ef0d78bf8717af913b2269b9301ccc46daa1416bf6aaec7c9" },
+    { "path": "target/ci-reports/linux-adaptive-handoff-motion/result.json", "sha256": "f1d654f6be87e19336c4b12636d69f31e5241f46db1280acbf26bfd78feeb67d" }
+  ],
+  "reviewed_screenshots": [
+    { "path": "target/ui-v2-appearance/run-4BIXU8/drawer-560.png", "sha256": "081f9d0f95962971aabc3971cdc3a4766bded1a939596207ac0f2d22e24a436e" },
+    { "path": "target/ui-v2-appearance/run-4BIXU8/content-560.png", "sha256": "f1b5786c1fe7a8b59266ff29b7d83896b60b4b63b4b7561b8aa2d2326b12f7fe" },
+    { "path": "target/ui-v2-appearance/run-4BIXU8/content-1000.png", "sha256": "eed6869e08fe18ddc63212723e10d1cea167ace867fb29a7a3914c83f18f30e0" }
+  ],
+  "failed_attempts_retained": [
+    "linux-adaptive-layout: capture ran before popover close settled; fixed test settling",
+    "linux-adaptive-layout-settled: passed assertions but showed excessive sidebar expansion and a measurement warning; bounded expansion, retained drag resizing and retested",
+    "visual review: unavailable sidebar-hide icon replaced by verified window-close icon",
+    "linux-adaptive-gpu-precheck: headless compositor cannot focus lifecycle fixture; invalid GDK debug option corrected; use separate offscreen metric without weakening motion gates",
+    "linux-adaptive-final-tests: FFI draft rejected by forbid(unsafe_code); removed, invariant retained"
+  ],
+  "limitations": [
+    "No physical-display frame pacing, battery use, GPU-only timing or release-performance guarantee",
+    "Backdrop-only changing-frame GPU sample, not populated-album or full-workflow rendering cost",
+    "Short idle sample excludes compositor and transfer workers; does not establish an overall idle CPU budget",
+    "No physical mouse/keyboard hardware, large-font or RTL acceptance in this slice; native drag handlers and default-font layouts were exercised",
+    "No phone install, production-server access, real power-policy mutation, commit or push"
+  ],
+  "format_and_driver_syntax_checks_passed": true,
+  "owned_test_processes_stopped": true
+}

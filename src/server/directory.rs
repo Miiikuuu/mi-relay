@@ -175,6 +175,7 @@ impl ServerStore {
         update.inventory.validate()?;
         let mut db = self.open_connection_unchecked()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        super::exit::require_device_open(&tx, device)?;
         let raw: Option<String> = tx
             .query_row(
                 "SELECT inventory FROM directory_indexes WHERE device_id=?",

@@ -1,13 +1,60 @@
 use super::*;
 use crate::{config::ConnectionState, pairing::PairingClient};
 
+pub(super) fn status(state: ConnectionState) -> &'static str {
+    match state {
+        ConnectionState::Connected => "Ready",
+        ConnectionState::DisconnectPending => "Disconnect pending",
+        ConnectionState::Disconnected => "Disconnected",
+        ConnectionState::ExitPending => "Clean exit pending",
+        ConnectionState::ExitLocalCleaned => "Waiting for peer cleanup",
+        ConnectionState::Exited => "Clean exit complete",
+    }
+}
+
+pub(super) fn empty_message(state: ConnectionState, directory: bool) -> &'static str {
+    match state {
+        ConnectionState::Connected if directory => {
+            "Initialize the source on Android, then select Receive. Existing Linux-only files stay unchanged."
+        }
+        ConnectionState::Connected => "Select Receive to check for new files.",
+        ConnectionState::DisconnectPending => {
+            "Transfers are stopped. Retry disconnect in Folder settings. Original files are kept."
+        }
+        ConnectionState::Disconnected => {
+            "Transfers are stopped. Original files are kept. Create a new Folder to reconnect."
+        }
+        ConnectionState::ExitPending => {
+            "Transfers are stopped. Retry clean exit in Folder settings. Keep this receipt until cleanup completes."
+        }
+        ConnectionState::ExitLocalCleaned => {
+            "Local cleanup is complete. Check clean exit in Folder settings after the other device finishes. Original files are kept."
+        }
+        ConnectionState::Exited => {
+            "Both devices and the relay confirmed cleanup. Original files are kept. You can remove this receipt in Folder settings."
+        }
+    }
+}
+
+pub(super) fn removal_message(state: ConnectionState) -> &'static str {
+    if state == ConnectionState::Exited {
+        "Remove this completed exit receipt and its MiRelay-owned configuration. Original and received files stay in place. Safety lock files and retirement markers remain."
+    } else {
+        "This only removes the Folder from MiRelay. Its configuration, state, and files remain. For legacy connections, shared server credentials are NOT revoked."
+    }
+}
+
 fn scoped(config: &Config) -> bool {
     matches!(&config.server, ServerConfig::Http { base_url, .. }
         if reqwest::Url::parse(base_url).is_ok_and(|url| url.path().contains("/f/")))
 }
 
 pub(super) fn can_remove(config: &Config) -> bool {
-    !scoped(config) || config.connection_state == ConnectionState::Disconnected
+    !scoped(config)
+        || matches!(
+            config.connection_state,
+            ConnectionState::Disconnected | ConnectionState::Exited
+        )
 }
 
 fn disconnect(paths: &DesktopPaths, id: &str, supplied_token: &str) -> Result<()> {
@@ -22,6 +69,15 @@ fn disconnect(paths: &DesktopPaths, id: &str, supplied_token: &str) -> Result<()
             .context("Folder no longer exists")?;
         let path = entry.config_path.clone();
         let mut config = load_editable_config(&path)?;
+        anyhow::ensure!(
+            !matches!(
+                config.connection_state,
+                ConnectionState::ExitPending
+                    | ConnectionState::ExitLocalCleaned
+                    | ConnectionState::Exited
+            ),
+            "Use Clean exit to preserve cleanup receipts."
+        );
         anyhow::ensure!(
             scoped(&config),
             "Legacy credentials can only be removed locally."
@@ -96,8 +152,31 @@ pub(super) fn panel(
         ConnectionState::Disconnected => {
             "Disconnected on the server. Files are kept. Create a new Folder to reconnect, or Remove this entry."
         }
+        ConnectionState::ExitPending => {
+            "Clean exit pending. Transfers are stopped. Retry to finish cleanup."
+        }
+        ConnectionState::ExitLocalCleaned => {
+            "Linux cleanup confirmed. Waiting for Android; use Check clean exit after the phone reconnects."
+        }
+        ConnectionState::Exited => {
+            "Both devices and the relay confirmed cleanup. Original and received files are kept. You can remove this receipt."
+        }
     };
     group.set_description(Some(description));
+    if scoped(config)
+        && !matches!(
+            config.connection_state,
+            ConnectionState::Disconnected | ConnectionState::Exited
+        )
+    {
+        super::clean_exit::add_button(&group, ui, editor, task, registration, config, token);
+    }
+    if matches!(
+        config.connection_state,
+        ConnectionState::ExitPending | ConnectionState::ExitLocalCleaned | ConnectionState::Exited
+    ) {
+        return group;
+    }
     if !scoped(config) || config.connection_state == ConnectionState::Disconnected {
         return group;
     }
@@ -147,6 +226,110 @@ pub(super) fn panel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopped_states_never_invite_receiving_and_removal_copy_matches_scope() {
+        for state in [
+            ConnectionState::DisconnectPending,
+            ConnectionState::Disconnected,
+            ConnectionState::ExitPending,
+            ConnectionState::ExitLocalCleaned,
+            ConnectionState::Exited,
+        ] {
+            assert_ne!(status(state), "Ready");
+            for directory in [false, true] {
+                assert!(!empty_message(state, directory).contains("select Receive"));
+                assert!(!empty_message(state, directory).contains("Select Receive"));
+            }
+        }
+        assert_eq!(status(ConnectionState::Exited), "Clean exit complete");
+        assert!(removal_message(ConnectionState::Exited).contains("MiRelay-owned configuration"));
+        assert!(
+            !removal_message(ConnectionState::Exited)
+                .contains("configuration, state, and files remain")
+        );
+        assert!(
+            removal_message(ConnectionState::Disconnected)
+                .contains("configuration, state, and files remain")
+        );
+        assert!(removal_message(ConnectionState::Connected).contains("NOT revoked"));
+        assert_eq!(status(ConnectionState::Connected), "Ready");
+        assert!(empty_message(ConnectionState::Connected, false).contains("Select Receive"));
+        assert!(empty_message(ConnectionState::Connected, true).contains("Initialize the source"));
+    }
+
+    #[test]
+    fn snapshots_preserve_every_connection_state() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::defaults(InitOverrides {
+            data_dir: Some(root.path().join("data")),
+            library_dir: Some(root.path().join("originals")),
+            ..Default::default()
+        })
+        .unwrap();
+        for state in [
+            ConnectionState::Connected,
+            ConnectionState::DisconnectPending,
+            ConnectionState::Disconnected,
+            ConnectionState::ExitPending,
+            ConnectionState::ExitLocalCleaned,
+            ConnectionState::Exited,
+        ] {
+            config.connection_state = state;
+            assert_eq!(
+                snapshot_from_config(config.clone())
+                    .unwrap()
+                    .connection_state,
+                state
+            );
+        }
+    }
+
+    #[test]
+    fn stopped_snapshots_ignore_stale_auto_flag_but_pending_exits_still_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let mut config = Config::defaults(InitOverrides {
+            data_dir: Some(root.path().join("data")),
+            library_dir: Some(root.path().join("originals")),
+            ..Default::default()
+        })
+        .unwrap();
+        let path = root.path().join("folder.toml");
+        let tokens = HashMap::from([("fixture".into(), "test-only".into())]);
+        for state in [
+            ConnectionState::Connected,
+            ConnectionState::DisconnectPending,
+            ConnectionState::Disconnected,
+            ConnectionState::ExitPending,
+            ConnectionState::ExitLocalCleaned,
+            ConnectionState::Exited,
+        ] {
+            config.connection_state = state;
+            config.save(&path, true).unwrap();
+            for auto_receive in [false, true] {
+                let views = [BridgeView {
+                    registration: BridgeRegistration {
+                        kind: Default::default(),
+                        id: "fixture".into(),
+                        name: "Fixture".into(),
+                        config_path: path.clone(),
+                        auto_receive,
+                    },
+                    snapshot: Some(snapshot_from_config(config.clone()).unwrap()),
+                    error: None,
+                }];
+                let expected = (state.is_connected() && auto_receive)
+                    || matches!(
+                        state,
+                        ConnectionState::ExitPending | ConnectionState::ExitLocalCleaned
+                    );
+                assert_eq!(
+                    !automatic_sync_requests(&views, &tokens).is_empty(),
+                    expected
+                );
+            }
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn failed_disconnect_persists_barrier_then_retry_preserves_local_files() {

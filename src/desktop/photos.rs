@@ -17,7 +17,6 @@ pub(super) use grid::AlbumGrid;
 pub(super) struct Layout {
     pub page: gtk::Box,
     pub clamp: adw::Clamp,
-    pub property_group: gtk::Box,
     pub details: gtk::MenuButton,
     pub activity: gtk::Expander,
     pub activity_scroll: gtk::ScrolledWindow,
@@ -32,32 +31,19 @@ impl Layout {
             if photos {
                 self.clamp.set_child(gtk::Widget::NONE);
                 widgets.content_stack.add_named(&self.page, Some("album"));
-                self.page.remove(&self.property_group);
-                self.details
-                    .popover()
-                    .unwrap()
-                    .set_child(Some(&self.property_group));
                 self.files.remove(&widgets.delivery_list);
                 self.activity_scroll.set_child(Some(&widgets.delivery_list));
                 self.page.add_css_class("album-page");
             } else {
                 widgets.content_stack.remove(&self.page);
                 self.clamp.set_child(Some(&self.page));
-                self.details.popover().unwrap().set_child(gtk::Widget::NONE);
-                // The property group belongs between status and file controls.
-                let status = self
-                    .page
-                    .first_child()
-                    .and_then(|child| child.next_sibling());
-                self.page
-                    .insert_child_after(&self.property_group, status.as_ref());
                 self.activity_scroll.set_child(gtk::Widget::NONE);
                 self.files.prepend(&widgets.delivery_list);
                 self.page.remove_css_class("album-page");
                 self.activity.set_expanded(false);
             }
         }
-        self.details.set_visible(photos);
+        self.details.set_visible(true);
         self.activity
             .set_visible(photos && widgets.delivery_list.first_child().is_some());
         widgets.photo_grid.widget.set_visible(photos);

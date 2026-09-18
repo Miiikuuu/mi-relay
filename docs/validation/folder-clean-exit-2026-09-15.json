@@ -1,0 +1,98 @@
+{
+  "date": "2026-09-15",
+  "scope": "Recoverable paired Folder clean exit across Android, relay and Linux; development acceptance, not live deployment",
+  "dirty_checkout": true,
+  "final_apk_sha256": "0544d290e2d1b6aa49608c99c414beb1875e68e896ddbd8bb0d2f018ee2daec5",
+  "instrumentation_apk_sha256": "f54f61b5df0fb2ef10eddf5f5a57532750f648ee8af5eae9889c5995a80d715c",
+  "rust": {
+    "passed": 237,
+    "failed": 0,
+    "ignored": 22,
+    "report": "target/ci-reports/folder-clean-exit-final-rust/result.json",
+    "source_index_matches_final_rust_inputs": true,
+    "coverage": [
+      "Scoped revocation, separate client receipts and idempotent retries",
+      "Shared content preserved until no other pending Folder references it",
+      "Owned tus fragments removed and old admitted writers cannot recreate data",
+      "Injected filesystem cleanup failure retains ownership for retry",
+      "Credential rechecked inside the server write transaction",
+      "Linux owned-state cleanup, original preservation, stale receiver barrier and receipt removal",
+      "Existing directory, tus, transfer and recovery regressions"
+    ]
+  },
+  "linux_layout": {
+    "passed": 1,
+    "backend": "Owned Broadway display and headless browser, not the real desktop",
+    "widths": [1000, 820, 640, 560],
+    "report": "target/ci-reports/folder-clean-exit-linux-layout/result.json",
+    "browser_exceptions": 0
+  },
+  "android_build": {
+    "report": "target/ci-reports/folder-clean-exit-receipt-race-build/result.json",
+    "jvm_passed": 106,
+    "jvm_failed": 0,
+    "jvm_skipped": 1,
+    "jvm_skip_reason": "Conditional QR fixture",
+    "lint_errors": 0,
+    "lint_warnings": 18,
+    "new_ownership_tests": [
+      "Find staging whose queue transaction did not commit without claiming another Folder",
+      "Reject unowned legacy payloads without deleting them",
+      "Reject an ownership marker that disagrees with the transfer queue"
+    ],
+    "work_gate_test": "Actual work holds a read lock; bounded cleanup fails safely until work drains"
+  },
+  "android_broad_regression": {
+    "report": "target/ci-reports/folder-clean-exit-acceptance/result.json",
+    "device_report": "android/.local/device-qa-uhyser2k/results.json",
+    "apk_sha256": "fccf7efd63fd2021edf4829d2000a10de1700e1008cb0f59a69b17701fa3623a",
+    "passed": 34,
+    "failed": 0,
+    "breakdown": {"selected_ui": 8, "auto": 12, "directory": 8, "recovery_seed_and_verify": 6},
+    "manual_and_auto_sigkill_resume": true,
+    "photo_preview_new_process": true,
+    "legacy_deliveries_exact_bytes_hash_ack": 8,
+    "paired_deliveries_exact_bytes_hash_ack": 1,
+    "directory_linux_paths": 52,
+    "disconnected_receivers_rejected": 3,
+    "difference_from_final_runtime_source": "Only RelayStore.finishDisconnect SQL gained AND exit_phase IS NULL, preventing a stale ordinary-disconnect callback from clearing a pending exit credential"
+  },
+  "final_apk_targeted_regression": {
+    "report": "target/ci-reports/folder-clean-exit-final-apk/result.json",
+    "device_report": "android/.local/device-qa-ud44gtd6/results.json",
+    "passed": 8,
+    "failed": 0,
+    "cases": [
+      "Cancel exit, then clean owned staging including an uncommitted import, preserve source bytes and wait for Linux receipt",
+      "Offline exit keeps a durable stop barrier, credential and staging",
+      "Peer-requested exit keeps directory permission used by another Folder",
+      "Ordinary disconnection still needs confirmation and retains files",
+      "Failed disconnection retains its credential and blocks stale work",
+      "Legacy removal remains local and retains files",
+      "Initialize an existing directory and wait for pairing confirmation",
+      "45-file initial backlog automatically crosses bounded batches, reaches Linux and is acknowledged"
+    ],
+    "paired_deliveries_exact_bytes_hash_ack": 1,
+    "directory_linux_paths": 45,
+    "disconnected_receivers_rejected": 3,
+    "recovery_not_repeated_after_sql_only_guard": true
+  },
+  "failed_attempts_retained": [
+    "folder-clean-exit-device: ambiguous duplicate-text UI locator; fixed to select the dialog",
+    "folder-clean-exit-device-verified and folder-clean-exit-device-final: HTTP/1.0 test proxy forced fresh emulator NAT connections; 42/45 uploads completed before the unchanged 90-second bound",
+    "folder-clean-exit-http11: HTTP/1.1 proxy made all 8 directory cases pass, including the 45-file test in 21.494 seconds; exposed an Auto test race between durable completion and subsequent staging deletion",
+    "Auto assertion now waits up to 5 seconds for staging deletion; durable receipt-before-delete ordering is unchanged"
+  ],
+  "limitations": [
+    "These counts describe distinct scopes and repeated runs must not be added together as unique tests",
+    "Not a full release or physical-phone/compositor performance qualification",
+    "Exit filesystem failures and uncommitted-import crash states were injected; SIGKILL runs cover transfer recovery, not every exit instruction boundary",
+    "Relay schema 5 and Android schema 7 require upgrade; old binaries must not reopen upgraded databases",
+    "Offline or old peers stay pending; minimal receipts, hashes and Linux lock/retirement markers intentionally remain",
+    "Legacy shared-token Folders cannot be independently retired",
+    "Unattributed legacy staging and custom/unverified Linux paths need manual review",
+    "Original files, received files and conflict copies are never cleanup targets",
+    "No live server deployment, real-phone installation, installed-Linux-app replacement, release signing, commit or push"
+  ],
+  "owned_emulator_and_test_services_stopped": true
+}

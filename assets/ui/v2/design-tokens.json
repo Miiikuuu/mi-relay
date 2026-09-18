@@ -1,0 +1,48 @@
+{
+  "reference": "preview/desktop.html",
+  "theme": "light",
+  "colors": {
+    "text": "#292d30",
+    "secondary": "#62696e",
+    "divider": "#353d4312",
+    "canvas": "#f4f6f7"
+  },
+  "layout": {
+    "sidebar": 208,
+    "outerPadding": 14,
+    "columnGap": 14,
+    "contentInset": 28,
+    "minimumDesktopHeight": 680,
+    "albumColumns": 3,
+    "albumGap": 0
+  },
+  "radii": {
+    "window": 22,
+    "panel": 17,
+    "control": 10,
+    "thumbnail": 0
+  },
+  "icons": {
+    "stroke": 1.6,
+    "headingSize": 40,
+    "headingStroke": 1.4,
+    "folder": "folder-open",
+    "album": "images",
+    "paired": "link-2"
+  },
+  "motion": {
+    "lightDurationsSeconds": [
+      12,
+      15,
+      14
+    ],
+    "hueCycleSeconds": 22,
+    "controlLocation": "global-settings",
+    "pauseWhen": [
+      "reduced-motion",
+      "document-hidden",
+      "offscreen"
+    ]
+  },
+  "note": "Exact gradients and responsive overrides are in source/desktop.css; mobile references predate some final desktop decisions."
+}

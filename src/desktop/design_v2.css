@@ -1,0 +1,55 @@
+/* The independent native backdrop supplies cached gradient nodes. No CSS
+ * animation or repeated style-provider reload is needed for motion. */
+.mirelay .workspace {
+  padding: 14px;
+  background: transparent;
+}
+.mirelay.reduced-transparency .bridge-sidebar,
+.mirelay.reduced-transparency .main-panel { background: @view_bg_color; }
+.mirelay .sidebar-resize { min-width: 14px; background: transparent; box-shadow: none; }
+.mirelay .sidebar-resize:focus-visible { outline: 1px solid alpha(@window_fg_color, 0.35); outline-offset: -5px; }
+.mirelay .bridge-sidebar.folder-drawer { background: @view_bg_color; }
+.mirelay .bridge-sidebar {
+  background: alpha(@view_bg_color, 0.25);
+  border: 1px solid alpha(@view_bg_color, 0.65);
+  border-radius: 17px;
+}
+.mirelay .main-panel {
+  background: alpha(@view_bg_color, 0.70);
+  border: 1px solid alpha(@view_bg_color, 0.88);
+  border-radius: 17px;
+}
+.mirelay .workspace-header {
+  background: transparent;
+  box-shadow: none;
+  margin: 0 16px;
+  border-bottom: 1px solid alpha(@window_fg_color, 0.07);
+}
+.mirelay .sidebar-heading { padding: 4px 12px 12px; }
+.mirelay .sidebar-title { font-weight: 400; color: alpha(@window_fg_color, 0.68); }
+.mirelay .bridge-list { padding: 0 10px 12px; }
+.mirelay .bridge-list row { margin: 4px 0; border-radius: 10px; }
+.mirelay .bridge-list row:selected {
+  background: alpha(@view_bg_color, 0.9);
+  color: @window_fg_color;
+  box-shadow: inset 0 0 0 1px alpha(@window_fg_color, 0.10);
+}
+.mirelay .bridge-list row:selected .folder-notice { color: @window_fg_color; }
+.mirelay .bridge-list row:selected:focus-visible { outline-color: @window_fg_color; }
+.mirelay .bridge-row { padding: 11px 8px; }
+.mirelay .bridge-name, .mirelay .delivery-name { font-weight: 500; }
+.mirelay .bridge-page, .mirelay .album-page { padding: 28px; }
+.mirelay .bridge-title, .mirelay .album-page .bridge-title { font-size: 25px; font-weight: 500; }
+.mirelay .bridge-hero-icon { background: transparent; border-radius: 0; padding: 0; }
+.mirelay .bridge-status { font-weight: 400; }
+.mirelay .activity-list { background: transparent; border: none; border-radius: 0; }
+.mirelay .activity-list row { border-bottom: 1px solid alpha(@window_fg_color, 0.07); }
+.mirelay .delivery-row { padding: 16px 0; }
+.mirelay .activity-header { margin-top: 16px; padding-bottom: 8px; border-bottom: 1px solid alpha(@window_fg_color, 0.07); }
+.mirelay .activity-title { font-size: 17px; font-weight: 500; }
+.mirelay .property-group { border: none; background: transparent; }
+.mirelay .property-row { padding: 10px 12px; }
+.mirelay button, .mirelay entry { border-radius: 10px; }
+.mirelay .album-grid > child { padding: 0; margin: 0; border-radius: 0; }
+.mirelay .album-grid > child:hover, .mirelay .album-grid > child:selected { background: transparent; }
+.mirelay .album-grid > child:selected { outline: 2px solid @window_fg_color; outline-offset: -2px; }

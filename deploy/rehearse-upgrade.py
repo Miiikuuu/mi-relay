@@ -63,6 +63,11 @@ def require_retained(before, after, expected_schema):
             raise RuntimeError("Existing Folder was implicitly disconnected")
         if [row[:len(old_columns)] for row in current] != rows:
             raise RuntimeError("Pre-upgrade database records changed")
+    if before["schema"] < 5 <= expected_schema:
+        if after["columns"].get("folder_exits") != [
+            "folder_id", "server_cleaned", "sender_cleaned", "receiver_cleaned"
+        ] or after["tables"].get("folder_exits") != []:
+            raise RuntimeError("Exit migration must add an empty receipt table, not retire existing Folders")
 
 
 def stage_artifacts(directory, old_binary, new_binary):
@@ -79,8 +84,8 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--old-binary", required=True)
     parser.add_argument("--new-binary", required=True)
-    parser.add_argument("--old-schema", type=int, choices=(1, 2, 3), default=3)
-    parser.add_argument("--new-schema", type=int, choices=(2, 3, 4), default=4)
+    parser.add_argument("--old-schema", type=int, choices=(1, 2, 3, 4), default=4)
+    parser.add_argument("--new-schema", type=int, choices=(2, 3, 4, 5), default=5)
     parser.add_argument("--marker", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.new_schema <= args.old_schema:
@@ -194,6 +199,7 @@ def inside(args):
                 uploads.append(path)
             old_pair = None
             pending_pair = None
+            closed_pair = None
             if existing_admin:
                 old_pair = create_folder(existing_admin, "Existing ready Folder")
                 pending_pair = create_folder(existing_admin, "Existing unclaimed Folder", ready=False)
@@ -202,6 +208,9 @@ def inside(args):
                 paired_upload = urllib.parse.urljoin(old_pair[0] + "/api/v1/uploads", headers["Location"])
                 request("PATCH", paired_upload, token=old_pair[2], body=payload[:65536], expected=204,
                     headers={**tus, "Upload-Offset": "0", "Content-Type": "application/offset+octet-stream"})
+                if args.old_schema >= 4:
+                    closed_pair = create_folder(existing_admin, "Already disconnected Folder")
+                    request("POST", closed_pair[0] + "/api/v1/pairing/disconnect", token=closed_pair[1], body={})
             before_rows = deliveries()
             before_database = database_snapshot(db_path)
             assert len(before_rows) == 1
@@ -265,6 +274,9 @@ def inside(args):
             print("PASS: interrupted v1 tus upload resumes after upgrade; exact content retained", flush=True)
 
             if old_pair:
+                if closed_pair:
+                    for credential in closed_pair[1:]:
+                        request("GET", closed_pair[0] + "/api/v1/deliveries", token=credential, expected=410)
                 request("GET", pending_pair[0] + "/api/v1/deliveries", token=pending_pair[1], expected=409)
                 headers, _ = request("HEAD", paired_upload, token=old_pair[2], headers=tus)
                 assert headers["Upload-Offset"] == "65536"
@@ -349,6 +361,53 @@ def inside(args):
                 if old_pair:
                     request("GET", old_pair[0] + "/api/v1/directory", token=old_pair[1])
                 print("PASS: disconnection is idempotent, survives restart, blocks both roles and isolates other Folders", flush=True)
+
+            if args.new_schema >= 5:
+                exiting, exit_receiver, exit_sender = create_folder(admin, "Clean-exit rehearsal")
+                identity = exiting.rsplit("/", 1)[1]
+                device = "folder_" + identity
+                # One complete shared object and one unfinished scoped tus upload.
+                exit_uploads = []
+                for length in (len(payload), 65536):
+                    headers, _ = request("POST", exiting + "/api/v1/uploads", token=exit_sender,
+                        body=b"", expected=201, headers={**tus, "Upload-Length": str(len(payload)), "Upload-Metadata": metadata})
+                    path = urllib.parse.urljoin(exiting + "/api/v1/uploads", headers["Location"])
+                    request("PATCH", path, token=exit_sender, body=payload[:length], expected=204,
+                        headers={**tus, "Upload-Offset": "0", "Content-Type": "application/offset+octet-stream"})
+                    exit_uploads.append(path)
+                request("POST", exiting + "/api/v1/pairing/exit", token=legacy, body={}, expected=401)
+                _, body = request("POST", exiting + "/api/v1/pairing/exit", token=exit_sender, body={})
+                receipt = json.loads(body)
+                assert receipt["requested"] and receipt["server_cleaned"]
+                assert not receipt["sender_cleaned"] and not receipt["receiver_cleaned"]
+                with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)) as db:
+                    for table in ("deliveries", "directory_versions", "directory_indexes"):
+                        assert db.execute(f"SELECT COUNT(*) FROM {table} WHERE device_id=?", (device,)).fetchone()[0] == 0
+                for path in exit_uploads:
+                    upload_id = path.rsplit("/", 1)[1]
+                    assert str(uuid.UUID(upload_id)) == upload_id
+                    for suffix in (".part", ".json"):
+                        assert not (setup.STATE / "uploads" / (upload_id + suffix)).exists()
+                for token in (exit_sender, exit_receiver):
+                    request("GET", exiting + "/api/v1/deliveries", token=token, expected=410)
+                control(["systemctl", "stop", "mirelay-server.service"])
+                control(["systemctl", "start", "mirelay-server.service"])
+                setup.local_health()
+                _, body = request("GET", exiting + "/api/v1/pairing/exit", token=exit_receiver)
+                assert json.loads(body)["server_cleaned"]
+                for token in (exit_sender, exit_receiver):
+                    for _ in range(2):
+                        request("POST", exiting + "/api/v1/pairing/exit/ack", token=token, body={})
+                _, body = request("GET", exiting + "/api/v1/pairing/exit", token=exit_receiver)
+                receipt = json.loads(body)
+                assert all(receipt[key] for key in ("server_cleaned", "sender_cleaned", "receiver_cleaned"))
+                for item in items:
+                    _, retained = request("GET", "/api/v1/deliveries/" + item["delivery_id"] + "/content",
+                        headers={"If-Match": '"sha256:' + sha + '"'})
+                    assert retained == payload, "Clean exit must preserve other queues' shared content"
+                if old_pair:
+                    request("GET", old_pair[0] + "/api/v1/directory", token=old_pair[1])
+                print("PASS: schema-5 clean exit revokes/purges only its Folder, retains shared content and resumes receipts after restart", flush=True)
 
             # A failed post-start health check must not rewind an already-upgraded DB.
             after_env = setup.ENV.read_bytes()

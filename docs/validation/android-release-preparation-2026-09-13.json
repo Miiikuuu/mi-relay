@@ -1,0 +1,398 @@
+{
+  "date": "2026-09-13",
+  "scope": "A2 local signing preparation, not complete release acceptance",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty": true,
+  "remote_ci_for_this_patch": false,
+  "custody_decision": "Maintainer confirmed local signing; release private key never uploaded to CI",
+  "production_key_generated": false,
+  "production_key_read": false,
+  "real_release_signed": false,
+  "phone_changed": false,
+  "migration_implemented": false,
+  "unsigned": {
+    "path": "android/.local/releases/candidate-ue6azz9w/unsigned.apk",
+    "package": "io.mirelay.android",
+    "version_code": 2,
+    "version_name": "0.1.0",
+    "min_sdk": 26,
+    "target_sdk": 36,
+    "debuggable": false,
+    "sha256": "0632ab5c008938bf1c5a59fbee7deaa7949155fbb6173a2aecbe510c06e90970",
+    "signature_valid": false,
+    "signing_material_present": false,
+    "zip_aligned_16k": true,
+    "certificates_sha256": [],
+    "debug_certificate": false,
+    "native_libraries": {
+      "lib/arm64-v8a/libandroidx.graphics.path.so": {
+        "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ]
+      },
+      "lib/arm64-v8a/libmirelay_android.so": {
+        "sha256": "4f06ce6f482b6141de1b7d3c3a1b4f0126d93153d7af1b8e9b9cae1bad08d1ba",
+        "load_alignment": [
+          16384,
+          16384,
+          16384,
+          16384
+        ]
+      },
+      "lib/x86_64/libandroidx.graphics.path.so": {
+        "sha256": "4e56c996f13670e70082658de7880c4020eabf4f25e43387f88ed78a713fc9f0",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ]
+      },
+      "lib/x86_64/libmirelay_android.so": {
+        "sha256": "60d10c582f8a866b5655421370f73f40cae5259ba0446b8e18bd9f74edb7facd",
+        "load_alignment": [
+          16384,
+          16384,
+          16384,
+          16384
+        ]
+      }
+    }
+  },
+  "debug": {
+    "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+    "package": "io.mirelay.android",
+    "version_code": 1,
+    "version_name": "0.1.0-dev",
+    "min_sdk": 26,
+    "target_sdk": 36,
+    "debuggable": true,
+    "sha256": "60d48b0aa6d22aa2e0066396f540f0938cc3ea240caa3613cd3da779956bcce9",
+    "signature_valid": true,
+    "signing_material_present": true,
+    "zip_aligned_16k": true,
+    "certificates_sha256": [
+      "cd032d879b4ee4dda9c8cfc73742eb8417993e97cf141de1832a752aec3e84a1"
+    ],
+    "debug_certificate": true,
+    "native_libraries": {
+      "lib/arm64-v8a/libandroidx.graphics.path.so": {
+        "sha256": "41e9a793c43a0f4fddb19e33f346bace464f30f888ba7b9eaf96294ea115bfb6",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ]
+      },
+      "lib/arm64-v8a/libmirelay_android.so": {
+        "sha256": "4f06ce6f482b6141de1b7d3c3a1b4f0126d93153d7af1b8e9b9cae1bad08d1ba",
+        "load_alignment": [
+          16384,
+          16384,
+          16384,
+          16384
+        ]
+      },
+      "lib/x86_64/libandroidx.graphics.path.so": {
+        "sha256": "4e56c996f13670e70082658de7880c4020eabf4f25e43387f88ed78a713fc9f0",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ]
+      },
+      "lib/x86_64/libmirelay_android.so": {
+        "sha256": "60d10c582f8a866b5655421370f73f40cae5259ba0446b8e18bd9f74edb7facd",
+        "load_alignment": [
+          16384,
+          16384,
+          16384,
+          16384
+        ]
+      }
+    }
+  },
+  "tests": {
+    "new_release_guard_tests": 18,
+    "total_python_driver_tests_passed": 29,
+    "gradle_negative_cases": 3,
+    "real_apk_cli_negative_cases": 3,
+    "jvm": {
+      "total": 90,
+      "passed": 89,
+      "failed": 0,
+      "skipped": 1
+    },
+    "jvm_skip_reason": "Explicit Linux QR fixture not provided",
+    "lint": {
+      "errors": 0,
+      "warnings": 17
+    }
+  },
+  "debug_environment_correction": "The initial standalone Gradle test used a different Android user home/debug certificate; it was never installed. Rebuilt with the standard build.sh Android user home and verified the original debug certificate. Final JVM/lint tasks reused this turn's successful results; do not count them twice.",
+  "reports": [
+    {
+      "label": "a2-unsigned-build",
+      "report": "target/ci-reports/a2-unsigned-build/result.json",
+      "report_sha256": "4befef17e7e850bfb7c8c122b208b538262dce86fffd837c10cee73165d11803",
+      "source_index_sha256": "b30bc8bfb22c5106127a77ca6232bb07dc61fa11f428e174d757c22b8db5c246",
+      "command": [
+        "python3",
+        "android/scripts/release.py",
+        "prepare",
+        "--version-code",
+        "2",
+        "--allow-dirty"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "c975190b8f9b00caa2429e424517e8c27e135842b2c86bb8b670f1ea4cae9f43",
+      "elapsed_seconds": 525.855
+    },
+    {
+      "label": "a2-unsigned-final",
+      "report": "target/ci-reports/a2-unsigned-final/result.json",
+      "report_sha256": "ca5dc43a10add7de8dc4b80e06cf815b365acac096f1fb0ff6ed8ae26764f493",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "python3",
+        "android/scripts/release.py",
+        "prepare",
+        "--version-code",
+        "2",
+        "--allow-dirty"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "bd59a7c989bbe5804f802f41e3e8b014ee535ed0fbf842829e9444fe7c9319de",
+      "elapsed_seconds": 9.133
+    },
+    {
+      "label": "a2-debug-regression",
+      "report": "target/ci-reports/a2-debug-regression/result.json",
+      "report_sha256": "c2803e4efb968c41d561b705b4100922ee817fb5f1611602d73c6625c4fe18db",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "android/.local/gradle-8.13/bin/gradle",
+        "--project-dir",
+        "android",
+        "--no-daemon",
+        "--console=plain",
+        ":app:assembleDebug",
+        ":app:testDebugUnitTest",
+        ":app:lintDebug"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "8ebcde6531917b97fea21f8f2308c76bd475c424b1dc6d3eebe6c2d03724225b",
+      "elapsed_seconds": 61.004
+    },
+    {
+      "label": "a2-debug-final",
+      "report": "target/ci-reports/a2-debug-final/result.json",
+      "report_sha256": "709fe58bf6ab7bdc16c0877e13b2dc04d701ec2ed8babbbd55851485f79777b8",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "bash",
+        "android/scripts/build.sh",
+        ":app:assembleDebug",
+        ":app:testDebugUnitTest",
+        ":app:lintDebug"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "b2ceb872962d589ec478a559fccc836113baacd9d37b45fa16dff927158ac074",
+      "elapsed_seconds": 8.733
+    },
+    {
+      "label": "a2-debug-identity-restored",
+      "report": "target/ci-reports/a2-debug-identity-restored/result.json",
+      "report_sha256": "187c4bd8da85979c85a9a6ae55e6419c0daea47ee4dd12b31c78f8a6e3e9ed2f",
+      "source_index_sha256": "2ebe1bf1efd9c1fc3f750dc9e236ebfd3528cf16868d7c87b7bf00136a2990aa",
+      "command": [
+        "python3",
+        "android/scripts/release.py",
+        "inspect",
+        "android/app/build/outputs/apk/debug/app-debug.apk"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "17e2dd81077e51c75f75724f1cec781af33e88724b1c128b8e80558483851fc2",
+      "elapsed_seconds": 0.315
+    },
+    {
+      "label": "a2-tests-final",
+      "report": "target/ci-reports/a2-tests-final/result.json",
+      "report_sha256": "6706c99c5a01e797d4a8f3ff4c356fd76fbc66d66bf72ea44001681c9639bfe8",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "7b202c5fec0bf37761f90758a01d148b9af3afbc2b06c3b39b845a05ebe04b8b",
+      "elapsed_seconds": 1.569
+    },
+    {
+      "label": "a2-final-workflow-lint",
+      "report": "target/ci-reports/a2-final-workflow-lint/result.json",
+      "report_sha256": "20f053cec36a1bc16d252393b579794fed298d5ed118017f05157d6f92cffbd4",
+      "source_index_sha256": "2ebe1bf1efd9c1fc3f750dc9e236ebfd3528cf16868d7c87b7bf00136a2990aa",
+      "command": [
+        "target/ci-lock-audit-DFDGaQlJ/actionlint",
+        "-color"
+      ],
+      "expected_exit_code": 0,
+      "actual_exit_code": 0,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "elapsed_seconds": 0.115
+    },
+    {
+      "label": "a2-missing-metadata",
+      "report": "target/ci-reports/a2-missing-metadata/result.json",
+      "report_sha256": "1692e19b8edffac11d3f3d2332a0287b1887dd948cf740720c9bd6219f20d6e4",
+      "source_index_sha256": "90b6b7efcd1e53fbd9c28527b6f5c967528203b2af99442e01e6ec1686dccd50",
+      "command": [
+        "android/.local/gradle-8.13/bin/gradle",
+        "--project-dir",
+        "android",
+        "--no-daemon",
+        "--console=plain",
+        ":app:validateReleaseMetadata"
+      ],
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "log_sha256": "43b06c0425b47ff50380096ae0f7bafe000309781620cbcd7103782302d45bee",
+      "elapsed_seconds": 13.8
+    },
+    {
+      "label": "a2-version-mismatch",
+      "report": "target/ci-reports/a2-version-mismatch/result.json",
+      "report_sha256": "90175f7a980d01ecfc06cc140ba8b05eb78d81c0fb60b8763e0c4e8cfa16e8fb",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "android/.local/gradle-8.13/bin/gradle",
+        "--project-dir",
+        "android",
+        "--no-daemon",
+        "--console=plain",
+        ":app:validateReleaseMetadata",
+        "-PmirelayReleaseVersion=0.2.0",
+        "-PmirelayReleaseVersionCode=2"
+      ],
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "log_sha256": "ed77fdd7dfeb3d1b0336c449b14b8abbd3f05c1c380214bcc7d9c5511076cd53",
+      "elapsed_seconds": 6.178
+    },
+    {
+      "label": "a2-low-version-code",
+      "report": "target/ci-reports/a2-low-version-code/result.json",
+      "report_sha256": "62b505ea6cbf20a51a23a0f9cb90a38d5ab1dad8fae45f77d0ab7d1f4623e1cc",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "android/.local/gradle-8.13/bin/gradle",
+        "--project-dir",
+        "android",
+        "--no-daemon",
+        "--console=plain",
+        ":app:validateReleaseMetadata",
+        "-PmirelayReleaseVersion=0.1.0",
+        "-PmirelayReleaseVersionCode=1"
+      ],
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "log_sha256": "7359751f890b088f2b7f19b801452f083a106fe5c7842acf43061317e026615d",
+      "elapsed_seconds": 5.33
+    },
+    {
+      "label": "a2-debug-rejected",
+      "report": "target/ci-reports/a2-debug-rejected/result.json",
+      "report_sha256": "ca5c2fd1164e3d03d31b93dc042ed83bdff4ece701e58164b1d256a80dbc8736",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "python3",
+        "android/scripts/release.py",
+        "verify",
+        "android/app/build/outputs/apk/debug/app-debug.apk",
+        "--version",
+        "0.1.0",
+        "--version-code",
+        "2",
+        "--certificate-sha256",
+        "abababababababababababababababababababababababababababababababab"
+      ],
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "log_sha256": "02700a492f602c151dc90a46f0a1ae60e39a336234f4bf67c69da14a6027753a",
+      "elapsed_seconds": 0.315
+    },
+    {
+      "label": "a2-unsigned-rejected",
+      "report": "target/ci-reports/a2-unsigned-rejected/result.json",
+      "report_sha256": "d58574b79c7d5af4e2e50f60baa51f059cca8d4fad45d088ab2c9f347ff7419b",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "python3",
+        "android/scripts/release.py",
+        "verify",
+        "android/.local/releases/candidate-az631o3a/unsigned.apk",
+        "--version",
+        "0.1.0",
+        "--version-code",
+        "2",
+        "--certificate-sha256",
+        "abababababababababababababababababababababababababababababababab"
+      ],
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "log_sha256": "fd49adbf2601a34850a382270c62cc89a0d30600914251f45a1f76211d96862f",
+      "elapsed_seconds": 0.215
+    },
+    {
+      "label": "a2-noninteractive-rejected",
+      "report": "target/ci-reports/a2-noninteractive-rejected/result.json",
+      "report_sha256": "ec609777fa62b27b08572419d237532b618dddcc1c64b139511ed5efee7fd70e",
+      "source_index_sha256": "d6e97baae5ce845c6967fce5f1c3a8e2bc852c99187022033074bca77501c30e",
+      "command": [
+        "python3",
+        "android/scripts/release.py",
+        "sign",
+        "android/.local/releases/candidate-az631o3a/unsigned.apk",
+        "--version",
+        "0.1.0",
+        "--version-code",
+        "2",
+        "--certificate-sha256",
+        "abababababababababababababababababababababababababababababababab",
+        "--apk-sha256",
+        "0632ab5c008938bf1c5a59fbee7deaa7949155fbb6173a2aecbe510c06e90970",
+        "--keystore",
+        "/does/not/exist",
+        "--alias",
+        "release-test"
+      ],
+      "expected_exit_code": 1,
+      "actual_exit_code": 1,
+      "log_sha256": "18e3504acae200eb56f9baf1e531739b3ee85b127463d7040dda72e5ad0afb27",
+      "elapsed_seconds": 0.064
+    }
+  ],
+  "limits": [
+    "Signing orchestration tests use mocked tools and synthetic bytes, not real release signing.",
+    "The final unsigned prepare reused compilation outputs and rechecked the artifact with the final script; this is not a clean checkout.",
+    "Signature/package/version/16 KiB checks do not prove device installation, data migration or full-chain runtime behavior.",
+    "Code versions are still 0.1.0; preparing an unsigned code-2 APK does not select a stable release or publish a tag.",
+    "Local Gradle reports were copied under target/ci-reports/a2-debug-final; previous CI acceptance is recorded separately."
+  ]
+}

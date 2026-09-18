@@ -1,17 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/io/mirelay/Desktop">
+    <file alias="icons/scalable/actions/relay-folder-symbolic.svg">gtk-icons/folder-open.svg</file>
+    <file alias="icons/scalable/actions/relay-photos-symbolic.svg">gtk-icons/images.svg</file>
+    <file alias="icons/scalable/actions/relay-link-symbolic.svg">gtk-icons/link-2.svg</file>
+    <file alias="icons/scalable/actions/relay-settings-symbolic.svg">gtk-icons/settings-2.svg</file>
+    <file alias="icons/scalable/actions/relay-filter-symbolic.svg">gtk-icons/sliders-horizontal.svg</file>
+    <file alias="icons/scalable/actions/relay-add-symbolic.svg">gtk-icons/folder-plus.svg</file>
     <file alias="brand/wordmark.png">wordmark/mirelay-wordmark.png</file>
-    <file alias="icons/16x16/apps/io.mirelay.Desktop.png">icons/png/mirelay-16.png</file>
-    <file alias="icons/24x24/apps/io.mirelay.Desktop.png">icons/png/mirelay-24.png</file>
-    <file alias="icons/32x32/apps/io.mirelay.Desktop.png">icons/png/mirelay-32.png</file>
-    <file alias="icons/48x48/apps/io.mirelay.Desktop.png">icons/png/mirelay-48.png</file>
-    <file alias="icons/64x64/apps/io.mirelay.Desktop.png">icons/png/mirelay-64.png</file>
-    <file alias="icons/96x96/apps/io.mirelay.Desktop.png">icons/png/mirelay-96.png</file>
-    <file alias="icons/128x128/apps/io.mirelay.Desktop.png">icons/png/mirelay-128.png</file>
-    <file alias="icons/192x192/apps/io.mirelay.Desktop.png">icons/png/mirelay-192.png</file>
-    <file alias="icons/256x256/apps/io.mirelay.Desktop.png">icons/png/mirelay-256.png</file>
-    <file alias="icons/512x512/apps/io.mirelay.Desktop.png">icons/png/mirelay-512.png</file>
-    <file alias="icons/1024x1024/apps/io.mirelay.Desktop.png">icons/png/mirelay-1024.png</file>
+    <file alias="brand/wordmark-transparent.png">brand/mirelay-wordmark-transparent.png</file>
+    <file alias="icons/16x16/apps/io.mirelay.Desktop.png">brand/icons/mirelay-16.png</file>
+    <file alias="icons/24x24/apps/io.mirelay.Desktop.png">brand/icons/mirelay-24.png</file>
+    <file alias="icons/32x32/apps/io.mirelay.Desktop.png">brand/icons/mirelay-32.png</file>
+    <file alias="icons/48x48/apps/io.mirelay.Desktop.png">brand/icons/mirelay-48.png</file>
+    <file alias="icons/64x64/apps/io.mirelay.Desktop.png">brand/icons/mirelay-64.png</file>
+    <file alias="icons/96x96/apps/io.mirelay.Desktop.png">brand/icons/mirelay-96.png</file>
+    <file alias="icons/128x128/apps/io.mirelay.Desktop.png">brand/icons/mirelay-128.png</file>
+    <file alias="icons/192x192/apps/io.mirelay.Desktop.png">brand/icons/mirelay-192.png</file>
+    <file alias="icons/256x256/apps/io.mirelay.Desktop.png">brand/icons/mirelay-256.png</file>
+    <file alias="icons/512x512/apps/io.mirelay.Desktop.png">brand/icons/mirelay-512.png</file>
+    <file alias="icons/1024x1024/apps/io.mirelay.Desktop.png">brand/icons/mirelay-1024.png</file>
   </gresource>
 </gresources>

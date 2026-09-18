@@ -3,6 +3,79 @@
 No release candidate is approved. This file tracks evidence without combining
 historical results into a claim of one full passing run.
 
+## Latest existing-server rollout — 2026-09-18
+
+**The production schema-4 gap is closed.** The authorized backend upgrade and
+public-HTTPS scoped verification passed with original data, credentials and
+unrelated services preserved. A newly discovered premature-exit-ACK HTTP 500 was
+reproduced, corrected to HTTP 409 and revalidated on the actual server. Final
+Rust 1.98.1 and 1.88.0 tests each pass 245/0/23; strict Clippy passes. The actual final static
+binary passed upgrade/recovery rehearsal before installation.
+
+See [rollout, backups, artifact identities and limits](docs/server-clean-exit-2026-09-18.md).
+This does not qualify a frozen release candidate, fresh installer or the deferred
+screen-off/network-handover tests. The server smoke uses synthetic protocol exit
+receipts; native phone/desktop cleanup evidence remains the separate run below.
+
+## Latest physical continuation after repairs — 2026-09-18
+
+**The repaired APK's scoped native chain passed on the connected phone.**
+User-approved overwrite installation preserved original data and signing
+identity. Native existing-directory initialization, empty-file rejection and
+recovery, 8 MiB transfer, six Linux acknowledgements and three-party clean exit
+passed. Final phone state matched its baseline; both test Folder receipts and
+the source grant were removed while original files and conflict history stayed
+intact. Test services and the USB route were stopped; no production upgrade,
+commit or push occurred. See [physical repair acceptance](docs/validation/phone-repair-acceptance-2026-09-18.md).
+
+This local USB-routed test does not qualify natural long screen-off operation,
+unplugged/network handover, optical QR, sustained performance or a release
+candidate. Production remains outside this run's scope.
+
+## Latest authorized local repair acceptance — 2026-09-18
+
+**Local AC-01, AC-02 and AC-03 repairs passed reacceptance.** Root/native format
+and strict Clippy pass; Rust 1.98.1 and 1.88.0 each pass 244 ordinary tests with
+23 ignored. The repaired ordered Android regression passes 6/6, the full emulator
+sequence passes **91/91** (including two added ownership regressions), and JVM
+tests pass 110/110 with the explicit Linux QR fixture. Lint has 0 errors and
+18 advisory warnings. Deployment unit tests pass 14/14, and the actual isolated
+schema-4-to-5 `upgrade --apply`/backup/recovery rehearsal passes.
+
+At the end of that local run, the new debug APK had been tested on the dedicated
+emulator but not yet on the phone; the subsequent physical run is recorded above.
+Production was still at schema 4 in that local run; the later upgrade is recorded
+above. No release candidate,
+real systemd/fresh-install rollout, optical QR or long screen-off gate is approved.
+No commit or push was made. See [repair evidence](docs/validation/local-repair-acceptance-2026-09-18.md)
+and [machine-readable results](docs/validation/local-repair-acceptance-2026-09-18.json).
+
+## Earlier development acceptance — 2026-09-18
+
+**Not accepted yet.** The current dirty checkout passed Rust desktop 244/0/23
+(passed/failed/ignored) on both 1.98.1 and 1.88.0, Android JVM 110/0/0, explicit
+GTK/JNI checks, installed Linux stress, local transport boundaries and direct
+schema-4-to-5 migration/recovery. These overlapping scopes are not one summed
+test count or acceptance of a frozen candidate SHA.
+
+The full Android emulator sequence recorded **87 passed / 2 failed**. Fresh
+exit controls passed, and an ordered photo-fixture → exit reproduction confirmed
+unowned test-staging contamination. Root/native formatting and strict Clippy
+also fail. The deployment rehearsal does not accept schema 4 → 5, production
+still runs schema 4 without clean exit, and the physical phone disconnected
+before fresh acceptance. No application fix or production upgrade was made.
+
+After reconnection, the physical phone's user-approved overwrite installation,
+native existing-directory chain, empty-source rejection/recovery, six receiver
+acknowledgements and three-party clean exit/removal passed with original-data
+preservation. See the [scoped physical continuation](docs/validation/phone-acceptance-continuation-2026-09-18.md).
+This local USB-routed run does not close the other failures, production upgrade,
+optical QR or long screen-off gates.
+
+See the [acceptance report](docs/validation/full-acceptance-2026-09-18.md) and
+[machine-readable evidence](docs/validation/full-acceptance-2026-09-18.json).
+The remaining release gates below are not closed by this run.
+
 ## A1 — minimum Rust toolchain (2026-09-13)
 
 - Base commit: `e50afbd28400b674f374cb29012de3f03bde955e`.
@@ -98,11 +171,63 @@ incorrect 1.85 declaration. These were addressed without suppressing the strict
 job; failure logs remain under their original report labels. The GTK preview
 change retains a short RefCell borrow before installing a replacement job.
 
-## Still required before evaluating a beta
+## Subsequent validation and remaining gates
 
-- A2: maintainer-approved signing custody, release APK, version policy and safe
+### Subsequent ordinary CI (prior baseline only)
+
+[GitHub run 34746258569](https://github.com/Miiikuuu/mi-relay/actions/runs/34746258569)
+passed all five jobs on `fb539cf65cea6e978baf0ad0d0157660954fefe7` from clean checkouts.
+Both Rust toolchains passed default 131/0/2 and desktop 226/0/17
+(passed/failed/ignored); each ran four lock cases 25 times. GTK/Xvfb: 3 passed;
+Python: 24 passed. Android JVM: **89 passed, 0 failed, 1 conditionally skipped**
+(the explicitly provided Linux QR fixture was absent); lint: 0 errors/17 warnings;
+debug build and host JNI smoke passed. All five artifact ZIP digests and 23 report
+input/log hashes were verified. See [summary](docs/validation/github-ci-fb539cf.json).
+The raw ZIPs are retained locally under `target/github-ci-34746258569-K7hOdY2n/`.
+This is not acceptance of the subsequent local-signing preparation changes.
+
+### A2 local-signing preparation (2026-09-13)
+
+The maintainer selected **local signing, no release private key in CI**.
+[Local signing and migration boundaries](docs/android-release.md) describe key
+creation by the maintainer in a private terminal, encrypted offline backup,
+version/identity checks, unsigned preparation and read-only artifact verification.
+No production key has been generated/read, and no APK has been release-signed,
+installed or published by this preparation work. The existing debug phone is
+unchanged; safe migration of its credentials/grants/history is **not implemented**.
+
+Local validation passed:
+
+- Real unsigned release APK, versionName 0.1.0 / code 2, with no signing material
+  and `debuggable=false`; APK ZIP alignment and all four packaged native libraries'
+  ELF machine/16 KiB LOAD alignment passed. Its SHA-256 is
+  `0632ab5c008938bf1c5a59fbee7deaa7949155fbb6173a2aecbe510c06e90970`.
+  This is a dirty development build, not a selected stable release.
+- 18 new release-guard tests passed; all Python driver tests: 29 passed.
+- Three real Gradle negative cases rejected missing metadata, mismatched Cargo
+  version and a too-low versionCode. Three CLI negatives rejected a debug APK,
+  an unsigned APK presented for release acceptance and noninteractive signing.
+  Their expected nonzero exits/logs are retained, not rewritten as successful commands.
+- Debug build and JVM tests: 89 passed / 0 failed / 1 conditional Linux-QR-fixture
+  skip; lint: 0 errors / 17 warnings. A standalone Gradle invocation initially
+  selected another debug certificate because its Android user home differed.
+  That APK was never installed. Rebuilding via `build.sh` restored the original
+  local debug certificate and retained versionName 0.1.0-dev / code 1. Its final
+  JVM/lint tasks reused this turn's results; they are not counted as another run.
+- Workflow syntax and `git diff --check` passed. This patch has not been pushed
+  or checked by remote CI; the prior `fb539cf` result is separate.
+
+[Machine-readable results](docs/validation/android-release-preparation-2026-09-13.json)
+record each command, source-index/log/report hash, expected exit code and APK/native
+hash. Signing orchestration tests use fake tools/material and do not certify
+cryptographic signing or a real APK upgrade. Actual maintainer key creation,
+offline-backup verification, signing and release install/upgrade remain pending.
+
+### Remaining gates
+
+- A2: actual key creation/backup verification, release APK and safe
   debug-install migration; release install/upgrade and final JNI/APK checks.
-- A3: a pushed, passing CI run on a frozen candidate SHA, remaining environment
+- A3: repeat CI on the final frozen candidate SHA, remaining environment
   suites and release-artifact smoke. The deterministic lock defect is fixed;
   the original unrecorded intermittent event's unique cause remains unproven.
 - A4: disposable VM installation/recovery acceptance, or explicitly restricted

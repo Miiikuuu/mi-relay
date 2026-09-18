@@ -1,5 +1,6 @@
 mod api;
 mod directory;
+mod exit;
 mod folders;
 mod store;
 mod tus_api;
@@ -132,6 +133,7 @@ async fn run_cli(cli: ServerCli) -> Result<()> {
             Ok(())
         }
         ServerCommand::Reconcile => {
+            store.resume_exits()?;
             let report = store.reconcile_content()?;
             print_reconcile_report(&report);
             if report.missing_objects != 0 || report.corrupt_objects != 0 {
@@ -147,6 +149,7 @@ async fn run_cli(cli: ServerCli) -> Result<()> {
 }
 
 async fn serve(store: ServerStore, device_id: String, args: ServeArgs) -> Result<()> {
+    store.resume_exits()?;
     let reconciliation = store.reconcile_content()?;
     if reconciliation.removed_unreferenced_objects != 0
         || reconciliation.stale_staging_files_removed != 0

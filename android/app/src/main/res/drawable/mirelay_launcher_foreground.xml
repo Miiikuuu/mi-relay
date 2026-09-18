@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The supplied sticker is an opaque square, not a transparent foreground.
-     Preserve its white canvas and inset it uniformly for launcher masks. -->
+<!-- Canvas-only cutout of the original sticker. Preserve the full silhouette
+     and inset uniformly inside the adaptive launcher's safe area. -->
 <inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="16.666667%">
-    <bitmap android:src="@drawable/mirelay_brand_icon" android:gravity="fill" android:filter="true" />
+    <bitmap android:src="@drawable/mirelay_brand_icon_transparent" android:gravity="fill" android:filter="true" />
 </inset>

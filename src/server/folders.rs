@@ -51,6 +51,7 @@ pub(super) fn router() -> Router<ApiState> {
         .route("/f/{folder_id}/api/v1/pairing/confirm", post(confirm))
         .route("/f/{folder_id}/api/v1/pairing/renew", post(renew))
         .route("/f/{folder_id}/api/v1/pairing/disconnect", post(disconnect))
+        .merge(super::exit::router())
 }
 
 pub(super) fn token_hash(token: &str) -> [u8; 32] {

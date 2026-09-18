@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -59,6 +60,105 @@ class DeviceUiTest {
         app.unregisterActivityLifecycleCallbacks(lifecycle)
     }
     private fun select(folder: String) { ui.runOnIdle { model().selected.value = folder }; ui.waitForIdle() }
+
+    @Test fun cleanExitCancelsSafelyCleansStagingAndWaitsForLinuxReceipt() {
+        val invite = DeviceSupport.invitation()
+        val connection = FolderConnection(app)
+        val secret = connection.newSenderToken()
+        connection.claim(DeviceSupport.server, invite.getString("pairing_code"), secret, true)
+        val folder = app.store.saveFolder(null, "Clean exit QA", connection.folderUrl(DeviceSupport.server, invite.getString("pairing_code")), secret, true, "awaiting_confirmation")
+        AutoFixture.reset()
+        try {
+        AutoFixture.put("kept-original", 12345)
+        app.auto.enable(folder, AutoFixture.tree, true, startImmediately = false)
+        val originalUri = AutoSession().use { DirectorySource(app.contentResolver).snapshot(AutoFixture.tree, it).files.single().uri }
+        val originalBytes = app.contentResolver.openInputStream(originalUri)!!.use { it.readBytes() }
+        val other = DeviceSupport.folder("Keep this Folder")
+        val otherTransfer = DeviceSupport.import(other)
+        val transfer = DeviceSupport.import(folder)
+        val interrupted = DeviceSupport.import(folder)
+        // Simulate durable staging whose queue transaction never committed.
+        app.store.writableDatabase.delete("transfers", "id=?", arrayOf(interrupted))
+        app.store.refresh()
+        val orphan = app.store.directory(interrupted)
+        assertTrue(File(orphan, "folder-owner").isFile)
+        val payload = File(app.store.directory(transfer), "payload")
+        val bytes = payload.readBytes()
+        select(folder)
+        ui.onNodeWithContentDescription("Folder settings").performClick()
+        ui.onNodeWithTag("clean-exit-folder").performClick()
+        ui.onNodeWithText("Clean exit from this Folder?").assertIsDisplayed()
+        ui.onAllNodesWithText("Cancel").onLast().performClick()
+        assertNull(app.store.folder(folder)!!.exitPhase)
+        assertArrayEquals(bytes, payload.readBytes())
+        ui.onNodeWithTag("clean-exit-folder").performClick()
+        ui.onAllNodesWithText("Clean exit").onLast().performClick()
+        ui.waitUntil(20000) { !model().busy.value && app.store.folder(folder)?.exitPhase == "local_cleaned" }
+        assertFalse(payload.exists()); assertNull(app.store.transfer(transfer))
+        assertFalse(orphan.exists())
+        assertNull(app.store.automatic.source(folder))
+        assertTrue(app.contentResolver.persistedUriPermissions.none { it.uri == AutoFixture.tree })
+        assertEquals(secret, app.store.token(folder))
+        assertNotNull(app.store.transfer(otherTransfer)); assertTrue(app.store.connectionOpen(other))
+        ui.onNodeWithTag("remove-folder").assertIsNotEnabled()
+        ui.onNode(hasText("Local cleanup complete · waiting for Linux") and hasAnyAncestor(isDialog())).assertIsDisplayed()
+        saveScreen("clean-exit-waiting-peer")
+        assertTrue(runCatching { DeviceSupport.import(folder) }.isFailure)
+        assertTrue(runCatching { app.store.removeFolder(folder) }.isFailure)
+        DeviceSupport.setupRequest("/f/${invite.getString("folder_id")}/api/v1/pairing/exit/ack", invite.getString("receiver_token"), org.json.JSONObject())
+        ui.onNodeWithTag("clean-exit-folder").performClick()
+        ui.waitUntil(20000) { !model().busy.value && app.store.folder(folder)?.exitPhase == "complete" }
+        assertEquals("", app.store.readableDatabase.rawQuery("SELECT token FROM folders WHERE id=?",arrayOf(folder)).use { it.moveToFirst(); it.getString(0) })
+        ui.onNodeWithTag("remove-folder").assertIsEnabled().performClick()
+        ui.onNodeWithText("Remove", substring = false).performClick()
+        ui.waitUntil(15000) { app.store.folder(folder) == null }
+        assertNotNull(app.store.folder(other)); assertNotNull(app.store.transfer(otherTransfer))
+        app.contentResolver.takePersistableUriPermission(AutoFixture.tree, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        assertArrayEquals(originalBytes, app.contentResolver.openInputStream(originalUri)!!.use { it.readBytes() })
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+
+    @Test fun offlineCleanExitKeepsCredentialAndStagingBehindDurableBarrier() {
+        val folder = DeviceSupport.folder("Offline exit", "http://127.0.0.1:1/f/${UUID.randomUUID()}")
+        val transfer = DeviceSupport.import(folder)
+        val payload = File(app.store.directory(transfer), "payload")
+        val bytes = payload.readBytes()
+        select(folder)
+        ui.runOnIdle { model().cleanExit(folder) }
+        ui.waitUntil(15000) { !model().busy.value && app.store.folder(folder)?.exitPhase == "pending" }
+        assertEquals(DeviceSupport.token, app.store.token(folder))
+        assertArrayEquals(bytes, payload.readBytes())
+        assertFalse(app.store.connectionOpen(folder))
+        assertTrue(runCatching { app.store.removeFolder(folder) }.isFailure)
+        assertTrue(runCatching { app.store.finishDisconnect(folder) }.isFailure)
+        ui.onNodeWithContentDescription("Folder settings").performClick()
+        ui.onNodeWithTag("remove-folder").assertIsNotEnabled()
+        ui.onNodeWithTag("disconnect-folder").assertDoesNotExist()
+        ui.onNodeWithTag("clean-exit-folder").assertIsEnabled()
+    }
+
+    @Test fun peerRequestedExitKeepsDirectoryGrantUsedByAnotherFolder() {
+        AutoFixture.reset()
+        try {
+            AutoFixture.put("shared-original", 12345)
+            val invite = DeviceSupport.invitation()
+            val connection = FolderConnection(app)
+            val secret = connection.newSenderToken()
+            connection.claim(DeviceSupport.server, invite.getString("pairing_code"), secret, true)
+            val folder = app.store.saveFolder(null, "Peer exit", connection.folderUrl(DeviceSupport.server, invite.getString("pairing_code")), secret, true, "awaiting_confirmation")
+            val other = DeviceSupport.folder("Shared source stays")
+            app.auto.enable(folder, AutoFixture.tree, true, startImmediately = false)
+            app.auto.enable(other, AutoFixture.tree, true, startImmediately = false)
+            DeviceSupport.setupRequest("/f/${invite.getString("folder_id")}/api/v1/pairing/exit", invite.getString("receiver_token"), org.json.JSONObject())
+            app.exit.run(folder, discoverOnly = true)
+            assertEquals("local_cleaned", app.store.folder(folder)!!.exitPhase)
+            assertNull(app.store.automatic.source(folder))
+            assertNotNull(app.store.automatic.source(other))
+            assertTrue(app.store.connectionOpen(other))
+            assertTrue(app.contentResolver.persistedUriPermissions.any { it.uri == AutoFixture.tree && it.isReadPermission })
+            assertEquals(1, AutoSession().use { DirectorySource(app.contentResolver).snapshot(AutoFixture.tree, it).files.size })
+        } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
 
     @Test fun disconnectRequiresConfirmationAndRemovalKeepsStagedFiles() {
         val invite = DeviceSupport.invitation()
@@ -126,7 +226,20 @@ class DeviceUiTest {
         val transfer = DeviceSupport.import(folder)
         val staged = File(app.store.directory(transfer), "payload")
         val bytes = staged.readBytes()
-        ui.runOnIdle { model().removeFolder(folder) {} }
+        select(folder)
+        ui.onNodeWithContentDescription("Folder settings").performClick()
+        ui.onNodeWithTag("remove-folder").assertIsDisplayed().assertIsEnabled().assertHasClickAction()
+            .assertHeightIsAtLeast(48.dp)
+        ui.onNodeWithText("Original files stay on this device.").assertIsDisplayed()
+        saveScreen("legacy-remove-button")
+        ui.onNodeWithTag("remove-folder").performClick()
+        ui.onNodeWithText("Remove Folder?").assertIsDisplayed()
+        ui.onAllNodesWithText("Cancel").onLast().performClick()
+        assertNotNull(app.store.folder(folder))
+        assertNotNull(app.store.transfer(transfer))
+        assertArrayEquals(bytes, staged.readBytes())
+        ui.onNodeWithTag("remove-folder").performClick()
+        ui.onNodeWithText("Remove", substring = false).performClick()
         ui.waitUntil(15000) { !model().busy.value && app.store.folder(folder) == null }
         assertArrayEquals(bytes, staged.readBytes())
         assertTrue(app.store.connectionOpen(other))
@@ -214,7 +327,7 @@ class DeviceUiTest {
         ui.onNodeWithText("MiRelay").assertDoesNotExist()
         saveScreen("brand-folder-drawer")
     }
-    @Test fun selectedFolderIconsHaveWhiteInkInBothThemes() {
+    @Test fun selectedFolderIconsContrastWithQuietSurfaceInBothThemes() {
         val folder = DeviceSupport.folder()
         val night = device.executeShellCommand("cmd uimode night").trim().substringAfterLast(' ')
         try {
@@ -236,13 +349,14 @@ class DeviceUiTest {
                     val bounds = ui.onNodeWithTag("folder-icon-$folder", useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInWindow
                     val bitmap = checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
                     try {
-                        var white = 0; var black = 0
+                        var light = 0; var darkInk = 0
                         for (y in bounds.top.toInt() until bounds.bottom.toInt()) for (x in bounds.left.toInt() until bounds.right.toInt()) {
                             val pixel = bitmap.getPixel(x, y)
-                            if (Color.red(pixel) > 230 && Color.green(pixel) > 230 && Color.blue(pixel) > 230) white++
-                            if (Color.red(pixel) < 40 && Color.green(pixel) < 40 && Color.blue(pixel) < 40) black++
+                            if (Color.red(pixel) > 200 && Color.green(pixel) > 200 && Color.blue(pixel) > 200) light++
+                            if (Color.red(pixel) < 80 && Color.green(pixel) < 80 && Color.blue(pixel) < 80) darkInk++
                         }
-                        assertTrue("Selected $kind icon needs white strokes on black: $white / $black", white > 20 && black > white)
+                        assertTrue("Selected $kind icon needs contrasting strokes: $light / $darkInk", light > 20 && darkInk > 20)
+                        assertTrue("Selected $kind icon must use foreground ink, not a filled tile", if (dark) darkInk > light else light > darkInk)
                         writeScreen(bitmap, "selected-icon-${kind.key}-$dark")
                     } finally { bitmap.recycle() }
                 }
@@ -251,12 +365,10 @@ class DeviceUiTest {
     }
     @Test fun photosRenderOriginalLocalArtAndCategorySwitchDoesNotChangeTransfers() {
         val folder=DeviceSupport.folder()
-        val id=UUID.randomUUID().toString()
-        val dir=app.store.directory(id);assertTrue(dir.mkdirs())
+        val id=DeviceSupport.image(folder,"Original.png")
+        val dir=app.store.directory(id)
         val payload=File(dir,"payload")
-        app.resources.openRawResource(R.drawable.mirelay_brand_icon).use {input -> payload.outputStream().use {input.copyTo(it)} }
         assertNotNull(PhotoThumbnails.decode(payload,256))
-        app.store.addTransfer(id,folder,"Original.png",payload.length())
         app.store.assign(id,"fixture-owner")
         app.store.updateOwned(id,"fixture-owner",TransferStatus.UPLOADED,payload.length())
         val before=app.store.transfer(id)
@@ -285,11 +397,9 @@ class DeviceUiTest {
     @Test fun realUploadCleanupKeepsPreviewAcrossActivityRecreationAndFreshDiskReader() {
         val folder = DeviceSupport.folder()
         app.store.setFolderKind(folder, FolderKind.PHOTOS)
-        val id = UUID.randomUUID().toString()
-        val dir = app.store.directory(id).apply { mkdirs() }
+        val id = DeviceSupport.image(folder, "Uploaded-original.png")
+        val dir = app.store.directory(id)
         val payload = File(dir, "payload")
-        app.resources.openRawResource(R.drawable.mirelay_brand_icon).use { input -> payload.outputStream().use { input.copyTo(it) } }
-        app.store.addTransfer(id, folder, "Uploaded-original.png", payload.length())
         val corrupt = DeviceSupport.import(folder, name = "Uploaded-invalid.jpg")
         for (transfer in listOf(id, corrupt)) app.uploads.enqueue(transfer, manual = true)
         DeviceSupport.await(60000) {
@@ -379,8 +489,9 @@ class DeviceUiTest {
             ui.waitForIdle(); android.os.SystemClock.sleep(500); saveScreen("album-frosted-scroll")
             ui.onNodeWithTag("album-title").assertIsDisplayed()
             ui.onNodeWithContentDescription("Album options").performClick()
-            ui.onNodeWithText("Reduce transparency").performClick()
-            device.pressBack(); ui.waitForIdle()
+            ui.onNodeWithTag("album-appearance-settings").performClick()
+            ui.onNodeWithTag("appearance-transparency").performClick()
+            ui.onNodeWithText("Done", substring = false).performClick(); ui.waitForIdle()
             ui.onNodeWithTag("album-glass-fallback").assertIsDisplayed()
             assertTrue(app.getSharedPreferences("appearance", 0).getBoolean("reduce_transparency", false))
             saveScreen("album-reduced-transparency")
@@ -389,6 +500,69 @@ class DeviceUiTest {
             ui.onNodeWithTag("album-glass-fallback").assertIsDisplayed()
             assertTrue(app.store.transfers.value.isEmpty())
         } finally { AutoFixture.control("revoke"); AutoFixture.control("reset") }
+    }
+    @Test fun refinedFilePanelDetailsAndDrawerPreserveFolderState() {
+        val first = DeviceSupport.folder("Reading")
+        val second = DeviceSupport.folder("Documents")
+        val transfer = DeviceSupport.import(first, name = "reading-notes.pdf")
+        app.store.pause(transfer)
+        select(first)
+        val before = app.store.folder(first)
+        val beforeTransfer = app.store.transfer(transfer)
+        ui.onNodeWithTag("files-panel").assertIsDisplayed()
+        assertTopLeftWordmark()
+        ui.onNodeWithTag("folder-details").assertDoesNotExist()
+        ui.onNodeWithContentDescription("Folder details").performClick()
+        ui.onNodeWithTag("folder-server").assertTextEquals(DeviceSupport.server)
+        ui.onNodeWithContentDescription("Folder details").performClick()
+        ui.onNodeWithTag("folder-details").assertDoesNotExist()
+        ui.onNodeWithText("Choose files").assertIsDisplayed().assertIsEnabled()
+        ui.onNodeWithText("reading-notes.pdf").assertIsDisplayed()
+        android.os.SystemClock.sleep(350) // Let the pressed-state ripple settle.
+        saveScreen("refined-files")
+        ui.onNodeWithContentDescription("Folders").performClick()
+        ui.onNodeWithContentDescription("Close folders").assertIsDisplayed()
+        android.os.SystemClock.sleep(350)
+        saveScreen("refined-drawer")
+        ui.onNodeWithContentDescription("Close folders").performClick()
+        assertEquals(first, model().selected.value)
+        ui.onNodeWithContentDescription("Folders").performClick()
+        ui.onNodeWithText("Documents").performClick()
+        assertEquals(second, model().selected.value)
+        ui.onNodeWithTag("folder-details").assertDoesNotExist()
+        assertEquals(before, app.store.folder(first))
+        assertEquals(beforeTransfer, app.store.transfer(transfer))
+    }
+
+    @Test fun globalAppearanceSettingsPersistWithoutChangingFoldersOrTransfers() {
+        val id = DeviceSupport.folder("Appearance QA")
+        select(id)
+        val before = app.store.folder(id)
+        val transfers = app.store.transfers.value.toList()
+        ui.onNodeWithContentDescription("Folders").performClick()
+        ui.onNodeWithTag("folder-drawer").performScrollToNode(hasTestTag("global-settings"))
+        ui.onNodeWithTag("global-settings").performClick()
+        ui.onNodeWithTag("appearance-settings").assertIsDisplayed()
+        ui.onNodeWithTag("appearance-motion").assertIsOff()
+        // Keep the background static during Compose idle assertions. The pure
+        // policy test separately covers every motion gate.
+        ui.onNodeWithTag("appearance-transparency").performClick()
+        ui.onNodeWithTag("appearance-solid-explanation").assertIsDisplayed()
+        ui.onNodeWithTag("appearance-motion").performClick()
+        ui.onNodeWithText("Done").performClick()
+        assertEquals(Appearance(true, true), AppearancePreferences(app).read())
+        assertEquals(before, app.store.folder(id))
+        assertEquals(transfers, app.store.transfers.value)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.recreate() }
+        ui.waitUntil(15000) { !model().busy.value }; select(id)
+        ui.onNodeWithContentDescription("Folders").performClick()
+        ui.onNodeWithTag("folder-drawer").performScrollToNode(hasTestTag("global-settings"))
+        ui.onNodeWithTag("global-settings").performClick()
+        ui.onNodeWithTag("appearance-motion").assertIsOn()
+        ui.onNodeWithTag("appearance-transparency").assertIsOn()
+        // Compose idleness does not wait for the platform dialog-window fade.
+        android.os.SystemClock.sleep(500)
+        saveScreen("global-appearance")
     }
     @Test fun albumRefreshRemovesDeletedFilesAndRevokedPermissionNeverShowsPartialLibrary() {
         try {
@@ -651,6 +825,8 @@ class DeviceUiTest {
     }
     @Test fun multipleShareUploadsWithRealWorkerAndDurableReceipts() {
         select(DeviceSupport.folder()); share(true)
+        // startActivity/onNewIntent and the confirmation window are asynchronous.
+        ui.waitUntil(15000) { ui.onNodeWithText("Send 2 file(s)").isDisplayed() }
         ui.onNodeWithText("Send 2 file(s)").assertIsDisplayed()
         // Keep the runtime permission prompt out of this flow; denial is tested separately.
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("pm grant ${app.packageName} android.permission.POST_NOTIFICATIONS").close()

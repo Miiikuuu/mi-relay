@@ -1,0 +1,1476 @@
+{
+  "date": "2026-09-18",
+  "status": "not_accepted_open_findings_and_unexecuted_physical_release_gates",
+  "scope": "Current dirty checkout: full available Rust/JVM/GTK/JNI/emulator regression, installed Linux release stress, local transport and migration checks, read-only production audit. Not complete physical-device or release acceptance.",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_checkout": true,
+  "baseline_source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+  "all_original_input_hashes_unchanged_at_test_completion": true,
+  "application_source_modified": false,
+  "counts_are_separate_overlapping_scopes": true,
+  "rust": {
+    "toolchain_1_98_1_desktop": {
+      "passed": 244,
+      "failed": 0,
+      "ignored": 23
+    },
+    "toolchain_1_98_1_default": {
+      "passed": 135,
+      "failed": 0,
+      "ignored": 2
+    },
+    "toolchain_1_88_0_desktop": {
+      "passed": 244,
+      "failed": 0,
+      "ignored": 23
+    },
+    "lock_lifecycle": {
+      "cases": 4,
+      "repetitions": 25,
+      "all_passed": true
+    },
+    "ignored_classification": {
+      "explicitly_executed": 21,
+      "not_directly_invoked": [
+        "Optical phone QR: physical phone disconnected",
+        "Crash-worker subprocess helper: exercised by ordinary parent recovery tests, not directly invoked"
+      ]
+    }
+  },
+  "android_summary": {
+    "broad": {
+      "executed": 89,
+      "passed": 87,
+      "failed": 2
+    },
+    "clean_isolated_exit_and_directory": {
+      "executed": 10,
+      "passed": 10,
+      "failed": 0
+    },
+    "ordered_contamination_reproduction": {
+      "executed": 3,
+      "passed": 2,
+      "failed": 1,
+      "unowned_fixture_payloads": 1
+    },
+    "lint": {
+      "errors": 0,
+      "warnings": 10
+    },
+    "manual_and_automatic_sigkill_resume": true,
+    "preview_cold_start_recovery": true,
+    "broad_run_androidruntime_fatal_or_anr_signatures_found": false
+  },
+  "artifacts": {
+    "installed_linux_release_sha256": "925eaae576c8f8d246e6fab45c73e920e53aa165e8f54aa3d3dda0c961b77714",
+    "android_debug_apk_sha256": "798258d4d89661ae88b6d3b644dd4028345a058eb8279b0401c315ecd41f9b31",
+    "android_tested_on": "Dedicated API 36 x86_64 AVD, 4 KiB pages",
+    "apk_signature_and_16k_zip_and_elf_alignment_passed": true,
+    "formal_release_signed": false,
+    "phone_updated_this_run": false
+  },
+  "findings": [
+    {
+      "id": "AC-01",
+      "state": "open",
+      "type": "quality_gate",
+      "summary": "Root/native rustfmt checks fail; strict Clippy rejects collapsible_if at src/desktop/appearance/power.rs:210. No formatting or implementation changes made during acceptance."
+    },
+    {
+      "id": "AC-02",
+      "state": "open",
+      "type": "test_isolation",
+      "summary": "Full Android UI sequence has two clean-exit failures. The photo rendering fixture directly creates a payload without folder-owner; DeviceSupport.reset deletes database rows but leaves staging. Running that photo fixture then peer exit deterministically reproduces the safety refusal. Both exit cases pass in a fresh AVD app-data run. Fix fixture ownership/isolation and rerun the broad suite; do not bypass cleanup ownership validation.",
+      "locations": [
+        "android/app/src/androidTest/java/io/mirelay/android/DeviceUiTest.kt:366",
+        "android/app/src/androidTest/java/io/mirelay/android/DeviceSupport.kt:36",
+        "android/app/src/main/java/io/mirelay/android/RelayStore.kt:178"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "state": "open",
+      "type": "deployment_acceptance",
+      "summary": "deploy/rehearse-upgrade.py rejects --old-schema 4 --new-schema 5. Separate direct old/new binary migration and backup recovery passes, but does not certify upgrade --apply, systemd or fresh install."
+    },
+    {
+      "id": "AC-04",
+      "state": "blocked_pending_authorized_upgrade",
+      "type": "production_version",
+      "summary": "Production is healthy with trusted HTTPS, zero service restarts and clean SQLite quick_check, but still runs schema 4 without folder_exits or the exit endpoint. Its binary hash matches the September 12 artifact. No production data or service was changed.",
+      "server_sha256": "cd1351dce893b9f32c1f9bd75791d0b1250c949dcfca5383996fd918a9305334"
+    },
+    {
+      "id": "AC-05",
+      "state": "blocked_missing_device",
+      "type": "physical_acceptance",
+      "summary": "V2329A was initially visible then disconnected before any phone mutation/testing. A reconnection request was sent; it remained absent at completion. Fresh phone installation, optical QR, natural screen-off/battery scheduling and real network switching were not executed. Prior September 18 installed-phone evidence remains separate."
+    }
+  ],
+  "performance": {
+    "linux_album_debug_xvfb": {
+      "model_entries": 10000,
+      "distinct_small_pngs": 32,
+      "model_update_ms": 20.547424,
+      "smooth_frame_interval_p95_ms": 16.667,
+      "settled_idle_cpu_percent_one_core": 0,
+      "real_album_app_idle_cpu_percent_one_core": 0.125,
+      "real_album_app_rss_before_and_after_kib": 185576
+    },
+    "installed_linux_release": {
+      "history_entries": 50000,
+      "name_sort_median_ms": 57.371268,
+      "folder_entries": 1000,
+      "folder_render_median_ms": 140.847535,
+      "scope": "Synchronous model/widget benchmark, excludes subsequent painting; concurrent host test/build activity, not a dedicated performance certification"
+    },
+    "offscreen_hardware_gl": {
+      "surface": "1000x680",
+      "samples": 60,
+      "p50_ms": 1.469,
+      "p95_ms": 1.639,
+      "scope": "snapshot + GPU + readback, not display FPS"
+    }
+  },
+  "harness_issues_retained": [
+    "Initial JNI helper command lacked Cargo on PATH; corrected invocation passed.",
+    "Initial two emulator network probes failed before test installation; restarting only the owned emulator without inherited proxy environment allowed the unchanged runner to pass preflight. Host proxy settings unchanged.",
+    "Private native integration driver used invalid underscore report labels; corrected labels and exact desktop-feature binary selection passed.",
+    "Initial private format fixture requested unavailable Pillow AVIF encoder; AVIF omitted explicitly, not counted as tested.",
+    "Private format probe compared health body without trimming its newline; corrected before successful chain.",
+    "Artificial 3-second request timeout expired during 100 MiB debug-server finalization; failure/state retained. Fresh full run using the CLI default timeout passed. Not a three-second latency guarantee.",
+    "Native state test's browser screenshot was captured after the short-lived window closed; it is blank and not used as visual evidence. Native assertions passed; separate native layout snapshots were visually inspected."
+  ],
+  "visually_inspected": [
+    "android/.local/device-qa-gb1iqswl/visual/refined-files.png",
+    "android/.local/device-qa-gb1iqswl/visual/landscape-large-font.png",
+    "android/.local/device-qa-gb1iqswl/visual/album-frosted-scroll.png",
+    "android/.local/device-qa-gb1iqswl/visual/refined-drawer.png",
+    "target/ui-v2-appearance/run-w8gRaH/content-1000.png",
+    "target/ui-v2-appearance/run-w8gRaH/drawer-560.png"
+  ],
+  "private_evidence": "target/acceptance-20260918-WKm2PX",
+  "teardown": {
+    "owned_services_and_graphical_servers_stopped": true,
+    "owned_emulator_stopped": true,
+    "synthetic_avd_staging_archived_before_reset_for_empty_app_performance": true,
+    "phone_and_user_folder_data_untouched": true,
+    "production_read_only": true,
+    "host_proxy_settings_unchanged": true,
+    "no_commit_push_tag_or_release": true
+  },
+  "remaining_release_gates": [
+    "Maintainer-controlled release signing and debug-to-release migration",
+    "Frozen candidate SHA and clean-checkout remote CI",
+    "Fresh disposable VM/systemd installation and recovery, or explicitly restricted support claims",
+    "Maintainer licensing/brand terms and third-party notices",
+    "Natural unplugged/long screen-off scheduling, real network transitions, mixed high-resolution library soak, broader platforms and actual 16 KiB Android runtime",
+    "Dependency vulnerability/license audit not performed"
+  ],
+  "reports": [
+    {
+      "label": "acceptance-0918-about",
+      "path": "target/ci-reports/acceptance-0918-about/result.json",
+      "sha256": "a88498423c49065fb5c068d201aaf2efb129f54e6b49e389b26ea9666e526a5d",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "f91392b119e33d50c753673d94cca56807687d9449206a6f841edb0165ffaf7e",
+          "elapsed_seconds": 1.617,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-album-grid",
+      "path": "target/ci-reports/acceptance-0918-album-grid/result.json",
+      "sha256": "673fe06d194888a5c7de398c096a83790c68599e680559a2c93f44c07c47f023",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e290e3c97961a0b879053d58e360e49e468d269e7f6881ed60f509afdc8271b0",
+          "elapsed_seconds": 30.782,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-album-lifecycle",
+      "path": "target/ci-reports/acceptance-0918-album-lifecycle/result.json",
+      "sha256": "3dc2d1dfe81b610d1e1775bf75af33abd9f0590afe8893309a2902f64fe4c791",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "fcd95cd4689c03fbbab2fcabe443df4d393ea81a1bb64a4649e743083489c08e",
+          "elapsed_seconds": 2.619,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-android-build",
+      "path": "target/ci-reports/acceptance-0918-android-build/result.json",
+      "sha256": "6ab281cb7b9819fc11accbda73727b011601a48094960d684feb736cbce1ae66",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "c6aaa8dc2069d22ca45c91f13fe34c2720f075eeb6ee7f7309344705982590a0",
+          "elapsed_seconds": 102.375,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-apk-inspect",
+      "path": "target/ci-reports/acceptance-0918-apk-inspect/result.json",
+      "sha256": "0755c321cb5a3549138542f6639b8f68681887fdc878d5d8d154814fee02afe8",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "8a78ced25cb330938484576813d6793da117496c8d0c560d9215c7f1c218d496",
+          "elapsed_seconds": 0.415,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-clippy",
+      "path": "target/ci-reports/acceptance-0918-clippy/result.json",
+      "sha256": "3597d69ee2f0c2e75bc0d1f634067e4b56434aae3224689a945cc2c2f6a0aecf",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 101,
+          "command_exit_code": 101,
+          "log": "run-001.log",
+          "log_sha256": "214ff315f8401b37200f97041ecff0cc23ae61f5d9559b5b764093d80c03df86",
+          "elapsed_seconds": 57.203,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-create",
+      "path": "target/ci-reports/acceptance-0918-create/result.json",
+      "sha256": "b8a71d9960cf23c0202d27790544f7c344d5b4676308bcfbf6ef0dca55941f67",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "fa863141b2cd83316841a7d0bc318d2f20cd6a8dd5565801ba9b89cddfadd476",
+          "elapsed_seconds": 0.465,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-decoder",
+      "path": "target/ci-reports/acceptance-0918-decoder/result.json",
+      "sha256": "cee2e87f97d45b1926ffb48c625677339c73e23d0b895e93c5f4d1239cf7ac6b",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "d7595b60ff3d869b931adf9c3df1617617c9614e6055c605123c60ed4066da0b",
+          "elapsed_seconds": 8.436,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-deploy",
+      "path": "target/ci-reports/acceptance-0918-deploy/result.json",
+      "sha256": "68815c034512f754f38fefb736dcaf4c5e724bcc09951d143fb4d43ed1af953f",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "7c41c99029380650cc6721c28672f1c9e38ebd89c63398c26fffd49a8a6b20eb",
+          "elapsed_seconds": 0.115,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-deploy-schema5-entry",
+      "path": "target/ci-reports/acceptance-0918-deploy-schema5-entry/result.json",
+      "sha256": "6895c26f1a547c5ae78c12d1e0747db92859a8b88b490c3556ffd75c32e10494",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 2,
+          "command_exit_code": 2,
+          "log": "run-001.log",
+          "log_sha256": "89de69c6d8c40a01568cf5e27674336162146c1d9ffde0cbc99a78834164ce9a",
+          "elapsed_seconds": 0.115,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-desktop-directory-exact-binary",
+      "path": "target/ci-reports/acceptance-0918-desktop-directory-exact-binary/result.json",
+      "sha256": "bcefc55990dab3b4fd424bf44dc1c98153c23e8a96c0396ecdbb4fa2bc81e038",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "46966660944cf891f67e72c50de31f1726604d552de9d3e2abcd104126ccd2af",
+          "elapsed_seconds": 10.843,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-desktop-resilience-exact-binary",
+      "path": "target/ci-reports/acceptance-0918-desktop-resilience-exact-binary/result.json",
+      "sha256": "a5cc79a20e5fae783a34313c0cf2023f94177ea6c216c607bafd1b096c464a76",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "8d66e3280175e3162c2cd0e11c3ebad101fba66397d50b6bbe13a6b8f6dda8f4",
+          "elapsed_seconds": 29.199,
+          "rust_counts": {
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-emulator",
+      "path": "target/ci-reports/acceptance-0918-emulator/result.json",
+      "sha256": "a4a37c95c4d0d8c62b4038aa5f441ebc3315e9062f8446716fde19579de83ab2",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "08973dac2c18da6938d0ee4cf71aba968719fbc4c53698aa9817079903548530",
+          "elapsed_seconds": 2.219,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-emulator-no-proxy",
+      "path": "target/ci-reports/acceptance-0918-emulator-no-proxy/result.json",
+      "sha256": "70e1b428c9b5d2cc1d4c8471b7fb5e75a0f50be225a7a5ea87a31909a65ca698",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "2f4dc709f03734b082b15b2960ea925ee1033bb7ef067905ea651f7b9a81fbc9",
+          "elapsed_seconds": 448.463,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-emulator-performance",
+      "path": "target/ci-reports/acceptance-0918-emulator-performance/result.json",
+      "sha256": "3af49e13922aad539dbebaaff16e70d0855c9fbde01ce626e38f32814bdf0665",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e14b0b034f583fa0c6488b8cc5f1c31c92c84d2a0a644d4b344336000463814f",
+          "elapsed_seconds": 31.557,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-emulator-retry",
+      "path": "target/ci-reports/acceptance-0918-emulator-retry/result.json",
+      "sha256": "543dec135e423008884dea4bd493c19dc21d575a171ddae3a703d31dd57d4e99",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "efc8266a8d98d8e3f3c519d8da9d13bb823d7982bacbda996d2bbeee52c38ade",
+          "elapsed_seconds": 2.27,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-exit-isolated",
+      "path": "target/ci-reports/acceptance-0918-exit-isolated/result.json",
+      "sha256": "38a9bc272f5bbae1a497b6ba7e81b52f00ca9465b071189d4fc02ac4c9162625",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "009b6e5198ad3a96d8896ad1c6d43f6701d57869d9b831d1bae6a19c94a123df",
+          "elapsed_seconds": 157.404,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-fmt",
+      "path": "target/ci-reports/acceptance-0918-fmt/result.json",
+      "sha256": "205d4d3d67283796aacbb162cf41ed273c18dd07df669565a6c086fbaf7f8c57",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "9e5e109789d3e9ad657614de59aceef05046f77a8751aa0ddbfda6dfb35689fb",
+          "elapsed_seconds": 0.515,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-format-boundary-chain",
+      "path": "target/ci-reports/acceptance-0918-format-boundary-chain/result.json",
+      "sha256": "29bbb4fe79d0ed647b73b553fa31fbd7144178ecdc596df9fd48fda266b49fd6",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "924c814f6709a324821ad8ff7cd077869f58955bf028bfacb0150b1313f718aa",
+          "elapsed_seconds": 0.215,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-format-boundary-chain-2",
+      "path": "target/ci-reports/acceptance-0918-format-boundary-chain-2/result.json",
+      "sha256": "7050e93230e8b42b8a260394b66172029bf4c4a2af9a86ad23e4472da8345c91",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "cf1d125c2cba802d7fe0f0f50559b150ece72d3edaf805ccd07947f79b14840c",
+          "elapsed_seconds": 0.465,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-format-boundary-chain-3",
+      "path": "target/ci-reports/acceptance-0918-format-boundary-chain-3/result.json",
+      "sha256": "382df6884c18dbbc58a80f85ce108c3157e4adad62f3dd2503d786091375b21b",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "51d4c5bf8b00251bd0618f21f35a28974021ad1b7d2736f99910a2e846954da8",
+          "elapsed_seconds": 14.699,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-format-boundary-chain-4",
+      "path": "target/ci-reports/acceptance-0918-format-boundary-chain-4/result.json",
+      "sha256": "efeb8d62d32bccca2d771a1fd5ec26d182465214fa0febb246c5350477a34ed9",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e766d0d61ee9f617914de3d283e44a8cc4065e4460f43f1a869d4b77054b2eca",
+          "elapsed_seconds": 25.297,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-gpu",
+      "path": "target/ci-reports/acceptance-0918-gpu/result.json",
+      "sha256": "97535cb921e3ceb25ca7b3bda6587816cb59d287c7e39a2b6945837fd8e814ec",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "3170fcf38496ff9786f2d4d26a53684579188e25b57211ab523bb9825247e149",
+          "elapsed_seconds": 2.872,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-installed-file-stress",
+      "path": "target/ci-reports/acceptance-0918-installed-file-stress/result.json",
+      "sha256": "ce60332b491baa693379e326b7b59129a154a7c91d506377cfb5ae00e5f95324",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "2a71fa5f86f28e8aa17df149fb4f23ced7aac9b62122ce9d0b0ee0b9dc3c83fe",
+          "elapsed_seconds": 7.241,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-installed-sidebar-stress",
+      "path": "target/ci-reports/acceptance-0918-installed-sidebar-stress/result.json",
+      "sha256": "b9b04193ce8af6156e1df76a0c8ce15fc0599677cb8c10990d72b9a5375f3d90",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "56dfbcc8154a617f0514afd2ba0697bac3cfcf3ff8740a920edde9b9cb6f743b",
+          "elapsed_seconds": 0.467,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-jni-chain",
+      "path": "target/ci-reports/acceptance-0918-jni-chain/result.json",
+      "sha256": "07219685d5dc1cac19388f561ee29a479b1a2afe7237d453ba9f99d84aceb38a",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "0b7d42f5e6edd7f2374ea9cab24382252c62b535873fe0ae23bb12399812c974",
+          "elapsed_seconds": 0.916,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-jni-smoke",
+      "path": "target/ci-reports/acceptance-0918-jni-smoke/result.json",
+      "sha256": "49e3fd6f033c93786478822b07b5c5a2d4b66a0211bb5d4fb7aab12723cc621f",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 127,
+          "command_exit_code": 127,
+          "log": "run-001.log",
+          "log_sha256": "2b3314e84e42690046caad32f55d94511a904efa4ab6b7105b2c2cb3f86a22a1",
+          "elapsed_seconds": 0.008,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-jni-smoke-path",
+      "path": "target/ci-reports/acceptance-0918-jni-smoke-path/result.json",
+      "sha256": "0138a82ff6b54178b6725e408fa09b4db389432fce1a99db613f23c8900431c6",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "512b9f8e421ea0aadbd3d3581282fb87d5004544b62d13cebef46001ff1f1dba",
+          "elapsed_seconds": 132.214,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-jvm-with-qr",
+      "path": "target/ci-reports/acceptance-0918-jvm-with-qr/result.json",
+      "sha256": "c908876a466c218a1de5f4cdd8941d5ff57daa3242fddfbf0b7a09039ea13be6",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "53ad3a3164b140e1ad2211ff6e9103fa8eb903f2e6d7cb9a637f513b3fddf626",
+          "elapsed_seconds": 24.062,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-lock-repeat",
+      "path": "target/ci-reports/acceptance-0918-lock-repeat/result.json",
+      "sha256": "1502c2331ce866484c4077127df2d30b2ba703d717c71aac39e9deb4e274c2b7",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "6d5d18fd24492a5d814e30ab0e92ae152f48d832892c2f6a851c57d76af33519",
+          "elapsed_seconds": 0.265,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-002.log",
+          "log_sha256": "54460296d8390a9e26571cf446d960d1542059f07844672353d08aa217f844b5",
+          "elapsed_seconds": 0.165,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-003.log",
+          "log_sha256": "ace1e0d21522ad7b19a4e6f1d88954b8b5e99bfc7c8c29b9dfe856f86be3d942",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-004.log",
+          "log_sha256": "77c12c7bf7a0364f6ad9dd47107744d8c9799c0d737cab32fed805f5f7920126",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-005.log",
+          "log_sha256": "12ec14705f33cb4e104c52f9e0d0c10ec1593ffe1f5e82c8b1821370d00a4d3e",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-006.log",
+          "log_sha256": "77c12c7bf7a0364f6ad9dd47107744d8c9799c0d737cab32fed805f5f7920126",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-007.log",
+          "log_sha256": "46779dc90848221a308e08dfcd81ba5698c49b70b3e4e0efd231ddb158bd0394",
+          "elapsed_seconds": 0.165,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-008.log",
+          "log_sha256": "ff135c7d802c64a952ffc80d0c481924775a7d529c805112db16946b31dad6e9",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-009.log",
+          "log_sha256": "46779dc90848221a308e08dfcd81ba5698c49b70b3e4e0efd231ddb158bd0394",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-010.log",
+          "log_sha256": "12ec14705f33cb4e104c52f9e0d0c10ec1593ffe1f5e82c8b1821370d00a4d3e",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-011.log",
+          "log_sha256": "54460296d8390a9e26571cf446d960d1542059f07844672353d08aa217f844b5",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-012.log",
+          "log_sha256": "46779dc90848221a308e08dfcd81ba5698c49b70b3e4e0efd231ddb158bd0394",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-013.log",
+          "log_sha256": "54460296d8390a9e26571cf446d960d1542059f07844672353d08aa217f844b5",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-014.log",
+          "log_sha256": "77c12c7bf7a0364f6ad9dd47107744d8c9799c0d737cab32fed805f5f7920126",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-015.log",
+          "log_sha256": "4bf7cb557b816eabb61b4996585377aff7b9dbb9bf036b8ee601ecae035d8005",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-016.log",
+          "log_sha256": "54460296d8390a9e26571cf446d960d1542059f07844672353d08aa217f844b5",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-017.log",
+          "log_sha256": "12ec14705f33cb4e104c52f9e0d0c10ec1593ffe1f5e82c8b1821370d00a4d3e",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-018.log",
+          "log_sha256": "77c12c7bf7a0364f6ad9dd47107744d8c9799c0d737cab32fed805f5f7920126",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-019.log",
+          "log_sha256": "77c12c7bf7a0364f6ad9dd47107744d8c9799c0d737cab32fed805f5f7920126",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-020.log",
+          "log_sha256": "46779dc90848221a308e08dfcd81ba5698c49b70b3e4e0efd231ddb158bd0394",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-021.log",
+          "log_sha256": "77c12c7bf7a0364f6ad9dd47107744d8c9799c0d737cab32fed805f5f7920126",
+          "elapsed_seconds": 0.215,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-022.log",
+          "log_sha256": "03a68d480945e5179d78fa1db2872cdebb2d108c182d7850e7b0dc59a37af634",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-023.log",
+          "log_sha256": "cd1ac1ffdb6673d557c69d534167018519cba14230e729dd28eb5cff8c48e48f",
+          "elapsed_seconds": 0.217,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-024.log",
+          "log_sha256": "546f2eab418a67d2d50345ee7388a481a2fed325f9ba9bfdf41f84da8cbd4eb6",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        },
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-025.log",
+          "log_sha256": "54460296d8390a9e26571cf446d960d1542059f07844672353d08aa217f844b5",
+          "elapsed_seconds": 0.216,
+          "rust_counts": {
+            "passed": 4,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-msrv",
+      "path": "target/ci-reports/acceptance-0918-msrv/result.json",
+      "sha256": "b97569ed58011bf3a0e838c8a371b9e27e1848d5e1e7e7348bcf7b558d17fe3b",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "bb04ec7396e3162376837bd9549937332500118df82c51bd4573659fca3af965",
+          "elapsed_seconds": 270.557,
+          "rust_counts": {
+            "passed": 244,
+            "failed": 0,
+            "ignored": 23
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-native-fmt",
+      "path": "target/ci-reports/acceptance-0918-native-fmt/result.json",
+      "sha256": "39effc86dfe94a8b78a4e6ce5d391079257a310031f0a022771fe0b443ffe1fa",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "6bbf8d33fc4cd56a4ff59c228ea5e757f97ac422f41e439da214506b9cd92554",
+          "elapsed_seconds": 0.115,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-native-layout",
+      "path": "target/ci-reports/acceptance-0918-native-layout/result.json",
+      "sha256": "8bd7259558b0250a2e3fbf25e1ee999afc59452a8030ec51ed8805adbb931c2f",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "786ae3efa4c32a46954c840d3ce72dff81101c15a5f6ff54136bee0262191a98",
+          "elapsed_seconds": 37.052,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-native-motion",
+      "path": "target/ci-reports/acceptance-0918-native-motion/result.json",
+      "sha256": "785459ffb6a0125ace303a837b3766691cbc7b485a55d6e7ac00d75f3d486044",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "bb5f5e72a045ad1339757875171afd31c497a6b7f042765ace4bc5e3a9db59c8",
+          "elapsed_seconds": 13.653,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-native-states",
+      "path": "target/ci-reports/acceptance-0918-native-states/result.json",
+      "sha256": "79fa0e8c5fffc0adebc96c2413f82e56021a8b5b7c4f65cca11cefa4123fe4e8",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "a9525a9e251c3a39bab79e9156d3de2589b1993700ff7991e621efea53d7f1d7",
+          "elapsed_seconds": 2.47,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-power-bus",
+      "path": "target/ci-reports/acceptance-0918-power-bus/result.json",
+      "sha256": "fbae69573c383353a8f6c264155d8c3e4af27dd7efcad2a7e2553a819e9e28b9",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "21b847b29157ba667b9000593e4f880fc3f3829b0c2bd3f991615dc5dc63b61b",
+          "elapsed_seconds": 0.415,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-power-host",
+      "path": "target/ci-reports/acceptance-0918-power-host/result.json",
+      "sha256": "44f73da4e1410de3c6b3c431f236b1cb76776576c1a1671d3d4c2378465f8b8f",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "30bdc546591069bbcc0910e8950893505a989183aeca46bcb9eac78076347744",
+          "elapsed_seconds": 0.032,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-preview",
+      "path": "target/ci-reports/acceptance-0918-preview/result.json",
+      "sha256": "91fae94e9690b624b0c2a0b0f363867b4837f0b8305ce81968b0e182cd12f7c2",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e14fd4d52e5f9c9a25f645bd1500bffcb6e3f82c60d5534501d7ba04c9a68df8",
+          "elapsed_seconds": 0.465,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-production-https",
+      "path": "target/ci-reports/acceptance-0918-production-https/result.json",
+      "sha256": "50c4b23c01a5fc2a3d540a963106dbfeae3acad25bf199ea43d2f0fa3a0492ff",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "dc51b8c96c2d745df3bd5590d990230a482fd247123599548e0632fdbf97fc22",
+          "elapsed_seconds": 0.768,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-production-readonly",
+      "path": "target/ci-reports/acceptance-0918-production-readonly/result.json",
+      "sha256": "ba678ba09bcc45339304a6e3394ddef6edc525772bd041e4949d98df4a2522cf",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "2c53a047206f9ac4fb6c3d4a8e28f53ad2633dc42a99ee53a9dbbe307b629f04",
+          "elapsed_seconds": 3.173,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-qr",
+      "path": "target/ci-reports/acceptance-0918-qr/result.json",
+      "sha256": "a2e5b80235a537046390d951aef3c64a6d2292adc72289978a13305b7e7d537f",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "591205c26d57d7243cecc7b9be266caf825af97072b33dbe146a285857dacdb4",
+          "elapsed_seconds": 3.772,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-qr-fixture",
+      "path": "target/ci-reports/acceptance-0918-qr-fixture/result.json",
+      "sha256": "1ec923a5aca41192ba8a980ebcdb77b1c00713900c1395529c8e80855bcff67d",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "dfc45ac828af9f9486487a03632d90c9ffad1feb0ffa2eeb76b32370f44a2ab2",
+          "elapsed_seconds": 0.115,
+          "rust_counts": {
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-rust-default",
+      "path": "target/ci-reports/acceptance-0918-rust-default/result.json",
+      "sha256": "ce0415d8f718c5d13818f760d7243a96e9c3392123e2dd2e1907407a9342b47d",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "31633e45dfe323863659675ae01370c25a3deca679b422c1cdc3c1807a8f0b24",
+          "elapsed_seconds": 37.142,
+          "rust_counts": {
+            "passed": 135,
+            "failed": 0,
+            "ignored": 2
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-rust-desktop",
+      "path": "target/ci-reports/acceptance-0918-rust-desktop/result.json",
+      "sha256": "1d1f957916dde2310a6174f9201de2c6fdb9548fba24f0e8f5977d2697aca252",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "5e515518322d96953f9dd958a89a9ba76f1393374354a8b047f7fdfa9d0c5033",
+          "elapsed_seconds": 6.431,
+          "rust_counts": {
+            "passed": 244,
+            "failed": 0,
+            "ignored": 23
+          }
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-schema-4-to-5",
+      "path": "target/ci-reports/acceptance-0918-schema-4-to-5/result.json",
+      "sha256": "d00ac683bd9520af39eb2494135c31d545f28c46034de4944846a4c8a956f745",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "6e01413605a9847b2092db7c8febdb9e90e31ec6cfbb6c16a480ce896ef17ced",
+          "elapsed_seconds": 1.317,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-scripts",
+      "path": "target/ci-reports/acceptance-0918-scripts/result.json",
+      "sha256": "1af01cb02dfb96194c211c290254f6775606a751be5e5cc08f63753cc9d64a77",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "43da57329d580fb86528238aee0d79fee93250e4b7b3896d0809f34704c87289",
+          "elapsed_seconds": 3.872,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-ui-contamination-repro",
+      "path": "target/ci-reports/acceptance-0918-ui-contamination-repro/result.json",
+      "sha256": "81dd88a2bc281aa9e06c1c1a1c38fda4a9ea9cf233a7abe4cb8c644689f69841",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": false,
+      "runs": [
+        {
+          "exit_code": 1,
+          "command_exit_code": 1,
+          "log": "run-001.log",
+          "log_sha256": "6671f30720a9e80a6b772b09d1a064f1c0a9d356759c056446a499716be7edcb",
+          "elapsed_seconds": 39.274,
+          "rust_counts": null
+        }
+      ]
+    },
+    {
+      "label": "acceptance-0918-workflow",
+      "path": "target/ci-reports/acceptance-0918-workflow/result.json",
+      "sha256": "6410c3c03ad7fc970f83b27aa07ce67874423d2136bbbdfa64a5f8515a8ad1e1",
+      "source_index_sha256": "5177b036ebfa2d96f056af4a72e4b7849ff4117b6723d11357d40fb78f7866a4",
+      "completed": true,
+      "runs": [
+        {
+          "exit_code": 0,
+          "command_exit_code": 0,
+          "log": "run-001.log",
+          "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "elapsed_seconds": 0.119,
+          "rust_counts": null
+        }
+      ]
+    }
+  ],
+  "android_runs": [
+    {
+      "path": "android/.local/device-qa-gb1iqswl/results.json",
+      "sha256": "16c1360299235390447cd80c1c2881e3cb682aaaa8a7983e975d879cfd92a15a",
+      "results": {
+        "apk_sha256": "798258d4d89661ae88b6d3b644dd4028345a058eb8279b0401c315ecd41f9b31",
+        "environment_loopback": true,
+        "DeviceDirectoryTest": true,
+        "DeviceRuntimeTest": true,
+        "DeviceAutoTest": true,
+        "DeviceUiTest": false,
+        "NotificationDeniedTest": true,
+        "CameraPermissionDeniedTest": true,
+        "DeviceAppearanceTest": true,
+        "photo_preview_seed": true,
+        "photo_preview_cold_start": true,
+        "recovery_seed": true,
+        "process_sigkill_resume": true,
+        "auto-recovery_seed": true,
+        "auto-process_sigkill_resume": true,
+        "linux_exact_bytes_and_hash": true,
+        "linux_delivery_count": 14,
+        "linux_all_acknowledged": true,
+        "paired_linux_delivery_count": 1,
+        "disconnected_linux_receivers_blocked": 3,
+        "paired_linux_exact_bytes_hash_ack": true,
+        "directory_linux_path_count": 52
+      }
+    },
+    {
+      "path": "android/.local/device-qa-uq4e5fox/results.json",
+      "sha256": "cffce589a7e1ff51fde617f041253f08e6f6486d58e8df8bbab52afd8e2dd662",
+      "results": {
+        "apk_sha256": "798258d4d89661ae88b6d3b644dd4028345a058eb8279b0401c315ecd41f9b31",
+        "environment_loopback": true,
+        "DeviceUiTest#cleanExitCancelsSafelyCleansStagingAndWaitsForLinuxReceipt": true,
+        "DeviceUiTest#peerRequestedExitKeepsDirectoryGrantUsedByAnotherFolder": true,
+        "DeviceDirectoryTest": true,
+        "linux_exact_bytes_and_hash": true,
+        "linux_delivery_count": 0,
+        "linux_all_acknowledged": true,
+        "paired_linux_delivery_count": 0,
+        "disconnected_linux_receivers_blocked": 2,
+        "paired_linux_exact_bytes_hash_ack": null,
+        "directory_linux_path_count": 52
+      }
+    },
+    {
+      "path": "android/.local/device-qa-obqocc08/results.json",
+      "sha256": "18f8969f2dc2b222d8125b43495d26e33e5d3a8cbc9e9de2d55b51383231d2cd",
+      "results": {
+        "apk_sha256": "798258d4d89661ae88b6d3b644dd4028345a058eb8279b0401c315ecd41f9b31",
+        "environment_loopback": true,
+        "DeviceUiTest#photosRenderOriginalLocalArtAndCategorySwitchDoesNotChangeTransfers": true,
+        "DeviceUiTest#peerRequestedExitKeepsDirectoryGrantUsedByAnotherFolder": false,
+        "DeviceDirectoryTest#photosFilterPreviewSkipsOnlyAfterConsentAndCanWidenWithoutResettingVersions": true,
+        "linux_exact_bytes_and_hash": true,
+        "linux_delivery_count": 0,
+        "linux_all_acknowledged": true,
+        "paired_linux_delivery_count": 0,
+        "disconnected_linux_receivers_blocked": 1,
+        "paired_linux_exact_bytes_hash_ack": null,
+        "directory_linux_path_count": 2
+      }
+    }
+  ],
+  "android_jvm": {
+    "tests": 110,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "transport": {
+    "scope": "loopback-only real debug CLI/server; not codec playback or production performance",
+    "limits": [
+      "AVIF fixture generation unavailable in installed Pillow; no AVIF acceptance claimed",
+      "EPUB is a ZIP transport fixture, not ebook rendering validation"
+    ],
+    "checks": {
+      "empty_and_100MiB_plus_one_rejected_without_resume_state": true,
+      "server_restart_and_offline_retry_retained_partial_upload": true,
+      "40_distinct_uploads_four_parallel_clients": true,
+      "all_exact_hashes_and_durable_acks_no_duplicate_second_receive": true,
+      "database_integrity_and_foreign_keys": true
+    },
+    "upload_seconds": 11.296443422000266,
+    "receive_seconds": 5.793484267999702,
+    "status": "passed",
+    "verified_file_count": 59,
+    "verified_bytes": 115891951
+  },
+  "migration": {
+    "scope": "Local schema-4 release artifact matching production -> current schema-5 debug binary; synthetic data only; not deployment helper/systemd/fresh VM acceptance",
+    "old_sha256": "cd1351dce893b9f32c1f9bd75791d0b1250c949dcfca5383996fd918a9305334",
+    "new_sha256": "bc783bf1f7f5c035290159215d7c4343fbb1d8b6272eba04f647171527432147",
+    "checks": [
+      "Exact old rows, columns, tokens and partial tus files preserved by 4 -> 5 migration; no implicit exits",
+      "Migrated paired upload resumes from retained offset using original sender credential",
+      "Old binary rejects schema 5 without changing its database rows",
+      "Independent pre-migration backup reopens with matching old binary and resumes its partial upload"
+    ],
+    "status": "passed"
+  },
+  "android_performance": {
+    "process_cold_start_ms": [
+      971,
+      1091,
+      1057,
+      1061,
+      1046
+    ],
+    "idle_seconds": 10.069040631999997,
+    "idle_cpu_seconds": 0.06,
+    "scope": "debug APK, software-rendered x86_64 emulator; warm filesystem caches"
+  }
+}

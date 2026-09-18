@@ -162,6 +162,14 @@ pub fn sync_once_with_events(
     );
     let store = StateStore::new(config.storage.state_file.clone());
     let _lock = store.lock_exclusive()?;
+    anyhow::ensure!(
+        !config
+            .storage
+            .state_file
+            .with_extension("json.retired")
+            .exists(),
+        "This local Folder has completed cleanup; it cannot resume transfers."
+    );
     let _library_lock = lock_library(&config.storage.library_dir)?;
     let mut state = store.load()?;
     let mut summary = SyncSummary {
@@ -236,12 +244,21 @@ pub fn sync_once_with_events(
 
 pub fn retry_wallpapers(config: &Config, include_uncertain: bool) -> Result<RetrySummary> {
     config.validate()?;
+    config.require_connected()?;
     anyhow::ensure!(
         !config.directory_sync,
         "Directory sync does not run wallpaper commands or use delivery-only retry state."
     );
     let store = StateStore::new(config.storage.state_file.clone());
     let _lock = store.lock_exclusive()?;
+    anyhow::ensure!(
+        !config
+            .storage
+            .state_file
+            .with_extension("json.retired")
+            .exists(),
+        "This local Folder has completed cleanup."
+    );
     let mut state = store.load()?;
     reconcile_interrupted_wallpapers(&store, &mut state)?;
     let skipped_uncertain = if include_uncertain {

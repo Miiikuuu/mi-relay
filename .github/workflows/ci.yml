@@ -144,6 +144,10 @@ jobs:
           python3 scripts/ci-run.py --label android-java -- "$JAVA_HOME/bin/java" -version
           python3 scripts/ci-run.py --label android-gradle -- android/.local/gradle-8.13/bin/gradle --version
           python3 scripts/ci-run.py --label android-hashes -- sha256sum android/app/build/outputs/apk/debug/app-debug.apk android/app/src/main/jniLibs/arm64-v8a/libmirelay_android.so android/app/src/main/jniLibs/x86_64/libmirelay_android.so
+      - name: Inspect debug APK identity and every packaged native library
+        run: |
+          export ANDROID_SDK_ROOT="$GITHUB_WORKSPACE/android/.local/sdk"
+          python3 scripts/ci-run.py --label android-inspect -- python3 android/scripts/release.py inspect android/app/build/outputs/apk/debug/app-debug.apk
       - name: Host JVM and JNI smoke
         run: |
           export JAVA_HOME="$GITHUB_WORKSPACE/android/.local/jdk"

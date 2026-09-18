@@ -57,6 +57,7 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
     syncSettings: () -> Unit, general: () -> Unit, chooseFiles: () -> Unit,
     refreshReceipts: () -> Unit, checkPairing: () -> Unit,
     retry: (String) -> Unit, pause: (String) -> Unit,
+    appearanceSettings: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as RelayApplication
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -64,8 +65,7 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
     var options by remember { mutableStateOf(false) }
     var activity by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    val prefs = remember(app) { app.getSharedPreferences("appearance", 0) }
-    var reduced by rememberSaveable { mutableStateOf(prefs.getBoolean("reduce_transparency", false)) }
+    val reduced = LocalAppearance.current.reduceTransparency
     val state by produceState(AlbumState(), folder.id, source?.treeUri, refresh, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             value = AlbumState()
@@ -92,9 +92,9 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
     }
     FrostedHeader(modifier.fillMaxSize(), MaterialTheme.colorScheme.surface, reduced,
         header = {
-            TopAppBar(modifier = Modifier.testTag("brand-top-bar"), expandedHeight = 72.dp,
+            TopAppBar(modifier = Modifier.testTag("brand-top-bar"), expandedHeight = 64.dp,
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                title = { BrandWordmark(Modifier.width(104.dp).height(65.dp).testTag("brand-wordmark")) },
+                title = { BrandWordmark(Modifier.width(88.dp).height(55.dp).testTag("brand-wordmark")) },
                 actions = {
                     IconButton(onClick = { refresh++ }, enabled = !state.loading) { RelayIcon("refresh", "Refresh photos") }
                     Box {
@@ -105,25 +105,33 @@ private data class AlbumState(val photos: List<AlbumPhoto> = emptyList(), val lo
                             DropdownMenuItem(text = { Text("Transfer activity") }, onClick = { options = false; activity = true })
                             if (source?.directorySync != true) DropdownMenuItem(text = { Text("Choose files") }, enabled = !busy && !folder.connectionClosed, onClick = { options = false; chooseFiles() })
                             DropdownMenuItem(text = { Text("General view") }, enabled = !busy, onClick = { options = false; general() })
-                            DropdownMenuItem(text = { Text("Reduce transparency") }, trailingIcon = { Checkbox(reduced, null) }, onClick = {
-                                reduced = !reduced; prefs.edit().putBoolean("reduce_transparency", reduced).apply()
-                            })
+                            DropdownMenuItem(text = { Text("Settings") }, modifier = Modifier.testTag("album-appearance-settings"), onClick = { options = false; appearanceSettings() })
                         }
                     }
                     IconButton(onClick = folders) { RelayIcon("menu", "Folders") }
                 })
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(folder.name, Modifier.weight(1f).testTag("album-title"), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                RelayIcon(folder.kind.icon, null, Modifier.size(32.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(folder.name, Modifier.testTag("album-title"), style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        if (pairedForDisplay(folder)) {
+                            RelayIcon("link", null, Modifier.size(17.dp))
+                            Text("Paired", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Text(if (state.loading && source != null) "Reading…" else "${photos.size} photos", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
                 TextButton(onClick = { activity = true }, modifier = Modifier.testTag("album-status")) {
                     Text(summary, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
                 }
             }
         }) { top ->
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val columns = (maxWidth / 120.dp).toInt().coerceIn(3, 6)
-            LazyVerticalGrid(GridCells.Fixed(columns), Modifier.fillMaxSize().testTag("album-grid"),
-                contentPadding = PaddingValues(top = top + 2.dp, bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Box(Modifier.fillMaxSize()) {
+            LazyVerticalGrid(GridCells.Fixed(ALBUM_COLUMNS), Modifier.fillMaxSize().testTag("album-grid"),
+                contentPadding = PaddingValues(top = top, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 if (state.loading || state.error != null || photos.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         when {

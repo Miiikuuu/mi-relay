@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-16",
+  "status": "functional_chain_passed_with_two_desktop_ui_findings",
+  "followup_resolution": "docs/validation/desktop-exit-ui-fix-2026-09-16.json",
+  "scope": "Physical Android phone -> isolated real relay process -> native Linux desktop application -> three-party clean exit and UI receipt removal",
+  "dirty_checkout": true,
+  "phone": "vivo V2329A, Android 16",
+  "transport": "HTTP over an exact-device USB adb reverse mapping to a loopback-only relay on port 18126",
+  "desktop": "Real session desktop process, independent registry; AT-SPI activates native controls, not an in-process test or CLI receiver",
+  "apk_sha256": "4b7e3d78384fa8e8089e7a55690e3c091c005d976206922dd8553d2cd5fe2297",
+  "desktop_sha256": "758e96362b5a952b3a4996b967f03819aadaa52e687086596981b6c975d7deee",
+  "server_sha256": "eecc3d92aaa843e6089caf3685044ba6ea58e40da9dcba957d05c8ca98bd10da",
+  "build_report": "target/ci-reports/phone-desktop-e2e-build-0916/result.json",
+  "private_evidence": "android/.local/phone-desktop-e2e-20260916-exDtgh",
+  "passed": [
+    "Create invitation using native desktop Add Folder, administrator credential and Create on server controls",
+    "Select an existing isolated Android directory through the real system picker",
+    "Compare verification codes visible on both devices and confirm through desktop UI; sending blocked before pairing",
+    "Initialize the existing Linux directory using native review and confirmation",
+    "Android preview correctly reports 1 identical, 2 missing, 1 different and 1 retained Linux-only file",
+    "Confirm initialization on Android; native desktop normal automatic receive cycle downloads and acknowledges 3 changed files",
+    "Add an 8 MiB file and modify a text file; trigger Android Check now, send phone to Home, and let desktop automatically receive both changes",
+    "All 5 current source hashes match Linux; all 5 delivery versions acknowledged; original Linux and prior phone text versions retained as history",
+    "Cancel native desktop clean-exit confirmation without creating a server exit receipt",
+    "Remove only the test USB route, request exit on Android, verify durable pending state, stopped Auto, retained retry credential and unchanged server records",
+    "Force-stop and reopen Android while offline; pending exit and original files survive",
+    "Restore test route and retry using Android UI; native desktop automatically discovers peer exit and runs its own cleanup and acknowledgement",
+    "Server, sender and receiver receipts all complete; desktop config becomes exited and auto-receive is disabled",
+    "Android UI reports completion and clears encrypted receipt credential; source permission released",
+    "Both native settings interfaces permit receipt removal; remove through actual confirmation dialogs",
+    "Desktop registry and phone Folder/transfer tables empty; completed desktop config removed by application",
+    "All 6 baseline phone private files and all 5 source file hashes preserved; all 9 Linux original/history/lock entries retain their pre-exit hashes",
+    "Relay deliveries, directory versions and indexes empty; payloads and tus records gone; minimal Folder tombstone and exit receipt retained"
+  ],
+  "application_sent_all_protocol_writes": true,
+  "no_script_exit_acknowledgements_or_manual_state_cleanup": true,
+  "findings": [
+    {
+      "id": "desktop-exited-presentation",
+      "severity": "medium",
+      "description": "An exited Folder still shows Ready and the Receive empty-state hint; Receive remains enabled. Clicking it is rejected by the connection-state guard, so no transfer or reconnection occurs, but the UI creates a misleading error/attention state.",
+      "locations": ["src/desktop.rs:2869", "src/desktop.rs:3093", "src/desktop.rs:3274"],
+      "status": "reproduced_not_fixed_in_test_only_task"
+    },
+    {
+      "id": "desktop-completed-receipt-remove-copy",
+      "severity": "low",
+      "description": "The Remove confirmation says configuration and state remain even for a completed clean-exit receipt. Actual application behavior correctly deletes its owned completed config; originals remain. The generic copy needs a completed-exit variant.",
+      "location": "src/desktop.rs:3907",
+      "status": "reproduced_not_fixed_in_test_only_task"
+    }
+  ],
+  "harness_notes": [
+    "AT-SPI Text.get_text requires the unbound interface method with these GI bindings; corrected the private test helper",
+    "Password accessibility returns masking characters; no receiver credential from it was used, and all protocol operations stayed in the application",
+    "A Cancel lookup briefly saw the dismissed modal and settings Cancel together; the strict locator refused to act, then succeeded after dismissal completed"
+  ],
+  "limits": [
+    "Local isolated relay, not the production VPS, public Internet, TLS or Clash path",
+    "Phone-initiated clean exit with automatic native-desktop peer cleanup; desktop-initiated confirmation was cancelled, not executed in this run",
+    "Android incremental scan triggered with Check now; this is not a 30-minute screen-off scheduler qualification",
+    "No optical QR, all-media-format, long-duration load or process-kill transfer-resume retest in this run",
+    "No app implementation changes, installed-Linux-app replacement, production deployment, commit or push",
+    "Synthetic source files and private recovery evidence intentionally retained"
+  ]
+}

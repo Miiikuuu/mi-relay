@@ -7,4 +7,5 @@ class RelayApplication : Application() {
     val store by lazy { RelayStore(this) }
     val uploads by lazy { UploadQueue(this, store) }
     val auto by lazy { AutoCoordinator(this, store, uploads) }
+    internal val exit by lazy { FolderExit(this) }
 }

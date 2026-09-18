@@ -207,6 +207,36 @@ impl PairingClient {
         Ok(info)
     }
 
+    pub fn exit_status(&self) -> Result<FolderExitStatus> {
+        self.exit_request(Method::GET, "api/v1/pairing/exit")
+    }
+    pub fn clean_exit(&self) -> Result<FolderExitStatus> {
+        self.exit_request(Method::POST, "api/v1/pairing/exit")
+    }
+    pub fn acknowledge_exit(&self) -> Result<FolderExitStatus> {
+        self.exit_request(Method::POST, "api/v1/pairing/exit/ack")
+    }
+
+    fn exit_request(&self, method: Method, path: &str) -> Result<FolderExitStatus> {
+        let mutation = method == Method::POST;
+        let info: FolderExitStatus = self.request(method, path, None::<&()>)?;
+        ensure!(
+            info.schema_version == PROTOCOL_VERSION
+                && uuid::Uuid::parse_str(&info.folder_id)
+                    .is_ok_and(|v| v.to_string() == info.folder_id)
+                && self
+                    .base
+                    .path()
+                    .ends_with(&format!("/f/{}/", info.folder_id))
+                && matches!(info.role.as_str(), "sender" | "receiver")
+                && (info.requested
+                    || !(info.server_cleaned || info.sender_cleaned || info.receiver_cleaned))
+                && (!mutation || (info.requested && info.server_cleaned)),
+            "Invalid exit receipt. Keep this Folder and retry; the relay may need an update."
+        );
+        Ok(info)
+    }
+
     /// Legacy configurations remain usable, but are not represented as paired.
     pub fn verify_receiver(&self) -> Result<Option<FolderHandshake>> {
         if self.base.path().contains("/f/") {

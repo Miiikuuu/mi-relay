@@ -16,6 +16,366 @@ const SENDER: &str = "1111111111111111111111111111111111111111111111111111111111
 const OTHER: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 
 #[tokio::test]
+async fn early_exit_ack_is_a_conflict_and_preserves_receipts_and_payloads() {
+    for cleanup_started in [false, true] {
+        let (root, store, app) = setup();
+        let folder = create(&app).await;
+        ready(&app, &folder).await;
+        let source = root.path().join("preserved.txt");
+        std::fs::write(&source, b"not cleaned yet").unwrap();
+        let delivery = store
+            .enqueue(
+                &format!("folder_{}", folder.folder_id),
+                &source,
+                "preserved.txt".into(),
+            )
+            .unwrap();
+        let db =
+            rusqlite::Connection::open(root.path().join("server/mirelay-server.sqlite3")).unwrap();
+        if cleanup_started {
+            db.execute(
+                "UPDATE folders SET disconnected=1,ready=0,expires=0 WHERE id=?",
+                [&folder.folder_id],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO folder_exits(folder_id) VALUES(?)",
+                [&folder.folder_id],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &url(&folder, "pairing/exit/ack"),
+                "bad",
+                json!({})
+            )
+            .await
+            .0,
+            401
+        );
+        for token in [SENDER, &folder.receiver_token] {
+            for _ in 0..2 {
+                let (code, problem) = request(
+                    &app,
+                    "POST",
+                    &url(&folder, "pairing/exit/ack"),
+                    token,
+                    json!({}),
+                )
+                .await;
+                assert_eq!(code, 409, "{problem}");
+                assert_eq!(problem["code"], "exit_cleanup_pending");
+                assert!(
+                    problem["request_id"]
+                        .as_str()
+                        .is_some_and(|id| !id.is_empty())
+                );
+                let (_, status) = request(
+                    &app,
+                    "GET",
+                    &url(&folder, "pairing/exit"),
+                    token,
+                    json!(null),
+                )
+                .await;
+                assert_eq!(status["requested"], cleanup_started);
+                for field in ["server_cleaned", "sender_cleaned", "receiver_cleaned"] {
+                    assert_eq!(status[field], false);
+                }
+            }
+        }
+        assert!(store.open_content(&delivery).is_ok());
+        assert_eq!(std::fs::read(source).unwrap(), b"not cleaned yet");
+        let count: i64 = db
+            .query_row("SELECT COUNT(*) FROM folder_exits", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, i64::from(cleanup_started));
+    }
+}
+
+#[tokio::test]
+async fn clean_exit_purges_only_owned_data_and_waits_for_both_receipts() {
+    for sender_initiates in [false, true] {
+        let (root, store, app) = setup();
+        let folder = create(&app).await;
+        ready(&app, &folder).await;
+        let other = create(&app).await;
+        ready(&app, &other).await;
+        let file = root.path().join("original.txt");
+        std::fs::write(&file, b"shared original").unwrap();
+        let device = format!("folder_{}", folder.folder_id);
+        let own = store
+            .enqueue(&device, &file, "original.txt".into())
+            .unwrap();
+        let shared = store
+            .enqueue(
+                &format!("folder_{}", other.folder_id),
+                &file,
+                "shared.txt".into(),
+            )
+            .unwrap();
+        let upload = store
+            .create_upload(
+                &device,
+                mirelay::server::NewUpload {
+                    directory: None,
+                    original_name: "unfinished.txt".into(),
+                    media_type: "text/plain".into(),
+                    sha256: own.sha256.clone(),
+                    length: 15,
+                    metadata_header: "filename dW5maW5pc2hlZC50eHQ=".into(),
+                },
+            )
+            .unwrap();
+        let actor = if sender_initiates {
+            SENDER
+        } else {
+            &folder.receiver_token
+        };
+        for token in [ADMIN, LEGACY, "bad", &other.receiver_token] {
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &url(&folder, "pairing/exit"),
+                    token,
+                    json!(null)
+                )
+                .await
+                .0,
+                401
+            );
+        }
+        assert_eq!(
+            request(
+                &app,
+                "GET",
+                &url(&folder, "pairing/exit"),
+                actor,
+                json!(null)
+            )
+            .await
+            .1["requested"],
+            false
+        );
+        let (code, status) = request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/exit"),
+            actor,
+            json!(null),
+        )
+        .await;
+        assert_eq!(code, 200, "{status}");
+        assert_eq!(status["server_cleaned"], true);
+        assert_eq!(status["sender_cleaned"], false);
+        assert_eq!(status["receiver_cleaned"], false);
+        assert!(store.get_delivery(&device, &own.id).unwrap().is_none());
+        assert!(
+            store.open_content(&shared).is_ok(),
+            "shared object must survive"
+        );
+        assert!(
+            !root
+                .path()
+                .join(format!("server/uploads/{}.part", upload.id))
+                .exists()
+        );
+        assert!(
+            !root
+                .path()
+                .join(format!("server/uploads/{}.json", upload.id))
+                .exists()
+        );
+        assert!(
+            store.enqueue(&device, &file, "late.txt".into()).is_err(),
+            "stale admission must not resurrect data"
+        );
+        store.initialize().unwrap();
+        for token in [SENDER, &folder.receiver_token] {
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &url(&folder, "pairing/exit"),
+                    token,
+                    json!(null)
+                )
+                .await
+                .0,
+                200
+            );
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    &url(&folder, "pairing/exit/ack"),
+                    token,
+                    json!(null)
+                )
+                .await
+                .0,
+                200
+            );
+        }
+        let done = request(
+            &app,
+            "GET",
+            &url(&folder, "pairing/exit"),
+            actor,
+            json!(null),
+        )
+        .await
+        .1;
+        assert_eq!(done["sender_cleaned"], true);
+        assert_eq!(done["receiver_cleaned"], true);
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &url(&folder, "pairing/renew"),
+                actor,
+                json!(null)
+            )
+            .await
+            .0,
+            410
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"shared original");
+        // Last owner exits: the previously shared content can now be collected.
+        assert_eq!(
+            request(
+                &app,
+                "POST",
+                &url(&other, "pairing/exit"),
+                &other.receiver_token,
+                json!(null)
+            )
+            .await
+            .0,
+            200
+        );
+        assert!(store.open_content(&shared).is_err());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_old_admissions_cannot_recreate_payload_after_exit_receipt() {
+    let (root, store, app) = setup();
+    let folder = create(&app).await;
+    ready(&app, &folder).await;
+    let file = root.path().join("race.txt");
+    std::fs::write(&file, b"race bytes").unwrap();
+    let device = format!("folder_{}", folder.folder_id);
+    let mut jobs = Vec::new();
+    for _ in 0..12 {
+        let store = store.clone();
+        let file = file.clone();
+        let device = device.clone();
+        jobs.push(tokio::task::spawn_blocking(move || {
+            store.enqueue(&device, &file, "race.txt".into())
+        }));
+    }
+    let (code, status) = request(
+        &app,
+        "POST",
+        &url(&folder, "pairing/exit"),
+        SENDER,
+        json!(null),
+    )
+    .await;
+    assert_eq!(code, 200, "{status}");
+    assert_eq!(status["server_cleaned"], true);
+    for job in jobs {
+        let _ = job.await.unwrap();
+    }
+    assert_eq!(store.stats(&device).unwrap().pending, 0);
+    let report = store.reconcile_content().unwrap();
+    assert_eq!(
+        report.removed_unreferenced_objects, 0,
+        "late writer left an orphan object"
+    );
+    assert_eq!(std::fs::read(file).unwrap(), b"race bytes");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn clean_exit_failure_keeps_ownership_for_retry_and_revokes_immediately() {
+    let (root, store, app) = setup();
+    let folder = create(&app).await;
+    ready(&app, &folder).await;
+    let file = root.path().join("original.txt");
+    std::fs::write(&file, b"keep").unwrap();
+    let device = format!("folder_{}", folder.folder_id);
+    let delivery = store
+        .enqueue(&device, &file, "original.txt".into())
+        .unwrap();
+    let object = root.path().join(format!(
+        "server/content/{}/{}.txt",
+        &delivery.sha256[..2],
+        delivery.sha256
+    ));
+    let parked = object.with_extension("parked");
+    std::fs::rename(&object, &parked).unwrap();
+    std::os::unix::fs::symlink(&file, &object).unwrap();
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/exit"),
+            SENDER,
+            json!(null)
+        )
+        .await
+        .0,
+        500
+    );
+    let pending = request(
+        &app,
+        "GET",
+        &url(&folder, "pairing/exit"),
+        SENDER,
+        json!(null),
+    )
+    .await
+    .1;
+    assert_eq!(pending["requested"], true);
+    assert_eq!(pending["server_cleaned"], false);
+    assert!(store.get_delivery(&device, &delivery.id).unwrap().is_some());
+    assert_eq!(
+        request(
+            &app,
+            "GET",
+            &url(&folder, "deliveries?status=pending"),
+            &folder.receiver_token,
+            json!(null)
+        )
+        .await
+        .0,
+        410
+    );
+    std::fs::remove_file(&object).unwrap();
+    std::fs::rename(&parked, &object).unwrap();
+    assert_eq!(
+        request(
+            &app,
+            "POST",
+            &url(&folder, "pairing/exit"),
+            SENDER,
+            json!(null)
+        )
+        .await
+        .0,
+        200
+    );
+    assert!(!object.exists());
+    assert_eq!(std::fs::read(&file).unwrap(), b"keep");
+}
+
+#[tokio::test]
 async fn either_device_can_disconnect_and_retries_survive_restart_without_deleting_files() {
     for sender_initiates in [false, true] {
         let (root, store, app) = setup();
@@ -169,7 +529,7 @@ async fn version_three_upgrade_keeps_live_pairing_and_is_idempotent() {
     let folder = create(&app).await;
     ready(&app, &folder).await;
     let db = rusqlite::Connection::open(root.path().join("server/mirelay-server.sqlite3")).unwrap();
-    db.execute_batch("ALTER TABLE folders DROP COLUMN disconnected; PRAGMA user_version=3;")
+    db.execute_batch("DROP TABLE folder_exits; ALTER TABLE folders DROP COLUMN disconnected; PRAGMA user_version=3;")
         .unwrap();
     store.initialize().unwrap();
     store.initialize().unwrap();
@@ -336,7 +696,7 @@ fn version_one_upgrade_preserves_existing_delivery_and_supports_new_folders() {
     {
         let db =
             rusqlite::Connection::open(root.path().join("server/mirelay-server.sqlite3")).unwrap();
-        db.execute_batch("DROP TABLE directory_versions; DROP TABLE directory_indexes; DROP TABLE folders; PRAGMA user_version=1;")
+        db.execute_batch("DROP TABLE folder_exits; DROP TABLE directory_versions; DROP TABLE directory_indexes; DROP TABLE folders; PRAGMA user_version=1;")
             .unwrap();
     }
     store.initialize().unwrap();

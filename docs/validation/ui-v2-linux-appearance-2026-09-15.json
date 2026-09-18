@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-15",
+  "status": "linux_appearance_implemented_and_isolated_native_regressions_passed",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_worktree": true,
+  "scope": "Linux native backdrop, app appearance settings and independent local preference persistence. No transport, Folder schema, token, Auto or Android changes in this slice.",
+  "rust_tests": { "passed": 227, "failed": 0, "ignored": 19 },
+  "native_appearance": {
+    "backend": "X11 on owned Xvfb :98",
+    "renderer": "Cairo",
+    "profile": "debug",
+    "acceptance_runs_passed": 3,
+    "foreground_probe": "DrawingArea overlay on the existing empty-state Add Folder action",
+    "cached_gradient_nodes": 6,
+    "samples": [
+      { "background_draws": 32, "elapsed_seconds": 1.535, "foreground_probe_draws": 0 },
+      { "background_draws": 32, "elapsed_seconds": 1.550, "foreground_probe_draws": 0 },
+      { "background_draws": 32, "elapsed_seconds": 1.547, "foreground_probe_draws": 0 }
+    ],
+    "default_off_background_draws": 0,
+    "system_animation_off_background_draws": 0,
+    "callback_removed_when_disabled_unmapped_unfocused": true,
+    "settings_save_and_recoverable_error": true,
+    "neighboring_folder_bytes_unchanged": true,
+    "gtk_fatal_criticals": 0,
+    "expected_environment_warning": "Xvfb lacks DRI3 hardware acceleration"
+  },
+  "native_layout": {
+    "backend": "Broadway with dedicated headless Chrome viewer",
+    "widths": [1000, 820],
+    "properties_and_category_switches_passed": true,
+    "browser_exceptions": 0
+  },
+  "evidence": [
+    { "path": "target/ci-reports/ui-v2-linux-appearance-handoff/result.json", "sha256": "ee102e550ac8ff38ff3d8a4c752a6a3dc0b9c27fdd6d6f48b46209cfdf72bfa2", "exit_code": 0 },
+    { "path": "target/ci-reports/ui-v2-linux-appearance-final-tests/result.json", "sha256": "0f7c3f1e0a957cdcad3046f55226c531a2d1e1ab091194a5460265a725a88a07", "exit_code": 0 },
+    { "path": "target/ci-reports/ui-v2-linux-appearance-x11-timed/result.json", "sha256": "5f4ca616a58707ae777e9f9cbbe1048016abe36a36e462247b8f78546029ef8e", "exit_code": 0 },
+    { "path": "target/ci-reports/ui-v2-linux-appearance-x11-repeat/result.json", "sha256": "b8e8bbb0b19b9086a5db74d642e6cb9d8c04dbbb121953d0fde6ee53ebfb7de8", "runs_passed": 2 },
+    { "path": "target/ci-reports/ui-v2-linux-appearance-layout/result.json", "sha256": "6ed0812b5606438ee9b30089ad0343f0560a7a4199c39f2a628901a212084459", "exit_code": 0 }
+  ],
+  "reviewed_screenshots": [
+    { "path": "target/appearance-x11-503r9r6i/settings.png", "sha256": "022a8034a82e09780077aeedeeefcdf0b36ff9109f60fe539a2a26813e631c50" },
+    { "path": "target/appearance-x11-503r9r6i/save-error.png", "sha256": "b2f6a5dcad80227e2000df5cb9cf0659cd5501a4fba563a7ea98117b76577d2b" }
+  ],
+  "failed_attempts_retained": [
+    "ui-v2-linux-appearance-build: Rust wrapper visibility fixed",
+    "ui-v2-linux-appearance-native-build: test capture helper module path fixed",
+    "ui-v2-linux-appearance-graphics, final-graphics, final-focus: headless viewer did not reliably focus GTK; replaced by exact-PID X11 focus driver for lifecycle acceptance",
+    "ui-v2-linux-appearance-x11: nominal sample duration was inaccurate under software rendering; assertion now uses measured elapsed time"
+  ],
+  "limitations": [
+    "Not a real compositor/GPU, release performance, power or populated-album benchmark",
+    "High-contrast gate has pure tests; live system high-contrast switching was not exercised",
+    "Linux power-saver monitoring and complete compositor occlusion detection are not implemented",
+    "Narrow sidebar collapse and remaining mobile refinements remain pending",
+    "No phone or production-server testing in this slice",
+    "No install over the user's running app, release signing, commit or push"
+  ],
+  "owned_test_processes_stopped": true
+}

@@ -162,6 +162,19 @@ fn album_virtualization_viewer_and_performance() {
         let bind_ms = start.elapsed().as_secs_f64() * 1000.0;
         pump(750);
         assert_eq!(album.len(), count as u32);
+        let squares: Vec<_> = widgets(album.view.upcast_ref())
+            .into_iter()
+            .filter(|widget| widget.is::<grid::PhotoSquare>() && widget.is_mapped())
+            .collect();
+        assert!(!squares.is_empty());
+        for square in squares {
+            assert!(
+                (square.width() - square.height()).abs() <= 1,
+                "Three-column thumbnails must fill square cells: {} x {}",
+                square.width(),
+                square.height()
+            );
+        }
         let bound = widgets(album.view.upcast_ref())
             .iter()
             .filter(|widget| widget.is::<gtk::Picture>())

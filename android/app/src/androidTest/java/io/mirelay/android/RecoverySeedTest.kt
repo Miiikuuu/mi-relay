@@ -34,7 +34,7 @@ class RecoverySeedTest {
         val file = AutoSession().use { DirectorySource(app.contentResolver).snapshot(AutoFixture.tree, it).files.single() }
         app.store.automatic.observe(source, listOf(file), 0)
         app.store.automatic.observe(source, listOf(file), 20000)
-        val id = FileImporter(app.contentResolver, app.store).stage(file.uri) { app.store.automatic.commit(source, file, it) }!!
+        val id = FileImporter(app.contentResolver, app.store).stage(file.uri, source.folderId) { app.store.automatic.commit(source, file, it) }!!
         assertEquals(source.revision, app.store.transfer(id)!!.autoRevision)
         assertEquals(TransferStatus.QUEUED, app.store.transfer(id)!!.status)
         // Simulates process death after the atomic queue commit, before enqueue.

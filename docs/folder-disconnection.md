@@ -11,6 +11,11 @@ rows. This semantic version barrier prevents older apps from reopening a stopped
 Folder and resetting its state during a handshake. Downgrading the app/database
 is unsupported; keep backups and do not edit database version numbers.
 
+Those are the schema versions that introduced ordinary disconnection. The newer
+[Clean exit](folder-clean-exit.md) workflow uses relay schema 5 and Android
+schema 7, and additionally removes owned relay/staging/state data with receipts
+from both devices. It is separate from the file-preserving Disconnect action.
+
 ## User workflow
 
 1. Open **Folder Settings** on Linux or **Folder settings** on Android.

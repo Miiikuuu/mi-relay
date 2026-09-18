@@ -171,6 +171,9 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
     }
 
     internal fun scan(source: AutoSource, session: AutoSession, clock: () -> Long = System::currentTimeMillis): Boolean {
+        return FolderWorkGate.work { scanLocked(source, session, clock) }
+    }
+    private fun scanLocked(source: AutoSource, session: AutoSession, clock: () -> Long): Boolean {
         if (!store.automatic.active(source.folderId, source.revision)) return false
         if (source.directorySync) return scanDirectory(source, session, clock)
         val tree = source.treeUri.toUri()
@@ -184,7 +187,7 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
             stagedBytes += file.size
             try {
                 check(reader.metadata(tree, file, session).fingerprint == file.fingerprint) { "Source changed." }
-                FileImporter(resolver, store).stage(file.uri, session) { staged ->
+                FileImporter(resolver, store).stage(file.uri, source.folderId, session) { staged ->
                     check(staged.size == file.size && reader.metadata(tree, file, session).fingerprint == file.fingerprint) { "Source changed while copying." }
                     session.check(); reader.requirePermission(tree)
                     store.automatic.commit(source, file, staged)
@@ -219,7 +222,7 @@ class AutoCoordinator(private val context: Context, private val store: RelayStor
             if (stagedBytes + requireNotNull(value.file.size) > MAX_FILE_BYTES) break
             stagedBytes += value.file.size
             try {
-                FileImporter(resolver, store).stage(value.file.uri, session, exactName = value.file.name) { staged ->
+                FileImporter(resolver, store).stage(value.file.uri, source.folderId, session, exactName = value.file.name) { staged ->
                     check(reader.metadata(tree, value.file, session, true).fingerprint == value.file.fingerprint) { "Source changed." }
                     session.check(); reader.requirePermission(tree)
                     store.directorySync.commit(source, value, staged).also { if(it) session.directoryProgress=true }

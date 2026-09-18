@@ -1,9 +1,6 @@
 package io.mirelay.android
 
-import android.app.ActivityManager
-import android.content.Context
 import android.os.Build
-import android.os.PowerManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -16,7 +13,6 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -36,12 +32,12 @@ internal fun supportsAlbumGlass(api: Int, lowRam: Boolean, powerSave: Boolean, h
     header: @Composable () -> Unit,
     content: @Composable (androidx.compose.ui.unit.Dp) -> Unit,
 ) {
-    val context = LocalContext.current
     val density = LocalDensity.current
     val view = LocalView.current
+    val environment = LocalAppearanceEnvironment.current
     val glass = !reducedTransparency && supportsAlbumGlass(Build.VERSION.SDK_INT,
-        (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).isLowRamDevice,
-        (context.getSystemService(Context.POWER_SERVICE) as PowerManager).isPowerSaveMode,
+        environment.lowRam,
+        environment.powerSave,
         view.isHardwareAccelerated)
     val source = rememberGraphicsLayer()
     val backdrop = rememberGraphicsLayer()
@@ -60,7 +56,7 @@ internal fun supportsAlbumGlass(api: Int, lowRam: Boolean, powerSave: Boolean, h
                     backdrop.renderEffect = effect
                     drawLayer(backdrop)
                 }
-                drawRect(surface.copy(alpha = if (glass) 0.82f else 0.96f))
+                drawRect(surface.copy(alpha = if (glass) 0.82f else 1f))
                 drawContent()
             }) { header() }
     }

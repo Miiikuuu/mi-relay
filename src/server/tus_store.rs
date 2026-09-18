@@ -84,6 +84,48 @@ struct UploadRecord {
 }
 
 impl ServerStore {
+    /// Caller holds uploads_dir lock. Keep the ownership record until its part
+    /// is durably removed, so a crash never turns an owned part into an orphan.
+    pub(super) fn purge_folder_uploads_locked(&self, device: &str) -> Result<()> {
+        // Old versions could crash between part creation and ownership commit.
+        // Never guess which Folder owns such bytes, or claim a complete purge.
+        for entry in fs::read_dir(&self.uploads_dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("part") {
+                let id = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .context("Invalid upload fragment name")?;
+                anyhow::ensure!(
+                    self.read_upload_record(id)?.is_some(),
+                    "Unowned legacy upload fragment requires administrator review before cleanup can be confirmed"
+                );
+            }
+        }
+        for entry in fs::read_dir(&self.uploads_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .context("Invalid upload record name")?;
+            let Some(record) = self.read_upload_record(id)? else {
+                continue;
+            };
+            if record.device_id != device {
+                continue;
+            }
+            super::exit::remove_regular_if_present(&self.upload_part_path(id)?)?;
+            sync_directory(&self.uploads_dir)?;
+            super::exit::remove_regular_if_present(&path)?;
+            sync_directory(&self.uploads_dir)?;
+        }
+        Ok(())
+    }
+
     pub fn max_file_size(&self) -> u64 {
         self.max_file_size
     }
@@ -123,6 +165,7 @@ impl ServerStore {
             self.require_directory_receiver(device_id)?;
         }
         let _upload_lock = lock_library(&self.uploads_dir)?;
+        super::exit::require_device_open(&self.open_connection_unchecked()?, device_id)?;
 
         for _ in 0..16 {
             let id = uuid::Uuid::new_v4().to_string();
@@ -131,7 +174,23 @@ impl ServerStore {
             if record_path.exists() || part_path.exists() {
                 continue;
             }
-
+            // Persist ownership BEFORE creating any payload bytes. The endpoint
+            // does not expose this id until both writes are durable.
+            let record = UploadRecord {
+                directory: upload.directory.clone(),
+                version: UPLOAD_RECORD_VERSION,
+                id,
+                device_id: device_id.to_owned(),
+                original_name: upload.original_name.clone(),
+                media_type: upload.media_type.clone(),
+                sha256: upload.sha256.clone(),
+                length: upload.length,
+                offset: 0,
+                metadata_header: upload.metadata_header.clone(),
+                created_at_unix: unix_now(),
+                delivery_id: None,
+            };
+            self.write_upload_record(&record)?;
             let mut options = OpenOptions::new();
             options.create_new(true).read(true).write(true);
             #[cfg(unix)]
@@ -140,7 +199,6 @@ impl ServerStore {
                 .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
             let part = match options.open(&part_path) {
                 Ok(part) => part,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
                     return Err(error).with_context(|| {
                         format!("failed to create tus upload data {}", part_path.display())
@@ -152,25 +210,6 @@ impl ServerStore {
             })?;
             sync_directory(&self.uploads_dir)?;
 
-            let record = UploadRecord {
-                directory: upload.directory,
-                version: UPLOAD_RECORD_VERSION,
-                id,
-                device_id: device_id.to_owned(),
-                original_name: upload.original_name,
-                media_type: upload.media_type,
-                sha256: upload.sha256,
-                length: upload.length,
-                offset: 0,
-                metadata_header: upload.metadata_header,
-                created_at_unix: unix_now(),
-                delivery_id: None,
-            };
-            if let Err(error) = self.write_upload_record(&record) {
-                let _ = fs::remove_file(&part_path);
-                let _ = sync_directory(&self.uploads_dir);
-                return Err(error);
-            }
             return Ok(record.info());
         }
         bail!("failed to allocate a unique tus upload id");
@@ -180,6 +219,7 @@ impl ServerStore {
         validate_device_id(device_id)?;
         validate_upload_id(upload_id)?;
         let _upload_lock = lock_library(&self.uploads_dir)?;
+        super::exit::require_device_open(&self.open_connection_unchecked()?, device_id)?;
         let Some(mut record) = self.read_upload_record(upload_id)? else {
             return Ok(None);
         };
@@ -202,6 +242,7 @@ impl ServerStore {
         validate_device_id(device_id)?;
         validate_upload_id(upload_id)?;
         let _upload_lock = lock_library(&self.uploads_dir)?;
+        super::exit::require_device_open(&self.open_connection_unchecked()?, device_id)?;
         let Some(mut record) = self.read_upload_record(upload_id)? else {
             return Ok(AppendUploadOutcome::NotFound);
         };

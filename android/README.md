@@ -107,6 +107,10 @@ APK output: `android/app/build/outputs/apk/debug/app-debug.apk`. The build scrip
 
 The pinned AGP/Gradle/JDK combination follows the [AGP 8.13 compatibility notes](https://developer.android.com/build/releases/agp-8-13-0-release-notes). Open `android/` in Android Studio after running the native build script; rebuilding Kotlin alone does not refresh the Rust libraries. The initial APK is a debug/development build, not a signed distribution release.
 
+Release preparation is separate: [local signing, APK checks and migration boundaries](../docs/android-release.md).
+Release private keys stay outside this repository and CI. The existing debug
+phone must not be uninstalled or assumed to accept a new signing identity.
+
 Production builds require HTTPS. Only debug builds expose explicit trusted-network HTTP opt-in, enforced again by the native request configuration. Do not use development HTTP over an untrusted network.
 
 ## Tests

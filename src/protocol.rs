@@ -16,6 +16,25 @@ pub struct FolderHandshake {
     pub max_file_size_bytes: u64,
 }
 
+/// Minimal authenticated tombstone; retained so offline peers and lost replies
+/// can finish cleanup without regaining transfer authority.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FolderExitStatus {
+    pub schema_version: u32,
+    pub folder_id: String,
+    pub role: String,
+    pub requested: bool,
+    pub server_cleaned: bool,
+    pub sender_cleaned: bool,
+    pub receiver_cleaned: bool,
+}
+
+impl FolderExitStatus {
+    pub fn complete(&self) -> bool {
+        self.requested && self.server_cleaned && self.sender_cleaned && self.receiver_cleaned
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateFolderRequest {

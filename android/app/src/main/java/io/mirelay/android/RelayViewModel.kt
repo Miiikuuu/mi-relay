@@ -25,7 +25,21 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     val directoryFilter = MutableStateFlow(FileFilter.ALL)
     private val connection = FolderConnection(application)
 
-    init { task { withContext(Dispatchers.IO) { app.auto.recover(); app.uploads.recover() } } }
+    init { task { withContext(Dispatchers.IO) {
+        app.auto.recover(); app.uploads.recover()
+        for (folder in app.store.folders.value.filter { it.exitPhase != null && it.exitPhase != "complete" }) {
+            try { app.exit.run(folder.id) }
+            catch (_: Exception) { error.value = "Clean exit is pending. Open Folder settings and retry when connected." }
+        }
+    } } }
+    // Discover peer-requested retirement on reopening the app, without holding
+    // the UI busy or enabling a new background service. Old relays are ignored.
+    init { viewModelScope.launch(Dispatchers.IO) {
+        app.store.refresh()
+        for (folder in app.store.folders.value.filter { it.scoped && !it.connectionClosed }) {
+            try { app.exit.run(folder.id, discoverOnly = true) } catch (_: Exception) { }
+        }
+    } }
 
     fun openAuto(folder: String) {
         if (app.store.folder(folder)?.connectionClosed != false) {
@@ -142,11 +156,17 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkPairing(folder: String) = task { withContext(Dispatchers.IO) { checkConnection(folder) } }
+    fun cleanExit(id: String) = task {
+        error.value = null
+        try { withContext(Dispatchers.IO) { app.exit.run(id) } }
+        catch (_: Exception) { error.value = "Clean exit was not confirmed. Keep this Folder and retry. Check connectivity, relay support, and whether file operations are still stopping." }
+    }
     fun disconnectFolder(id: String) = task {
         withContext(Dispatchers.IO) {
             val folder = requireNotNull(app.store.folder(id)) { "Folder no longer exists." }
             if (folder.pairingState == "disconnected") return@withContext
             require(folder.scoped) { "This is a legacy connection. Only local removal is available." }
+            require(folder.exitPhase == null) { "Use Retry clean exit to preserve its cleanup receipt." }
             app.auto.stopFolder(id)
             try {
                 connection.disconnect(folder, app.store.token(id))
@@ -171,6 +191,16 @@ class RelayViewModel(application: Application) : AndroidViewModel(application) {
         val folder = requireNotNull(app.store.folder(id)) { "Folder no longer exists." }
         require(!folder.connectionClosed) { "Use Retry disconnect, or create a new Folder after disconnection." }
         val info = connection.check(folder, app.store.token(id))
+        if (info?.optString("state") == "disconnected") {
+            // Do not discard the only receipt credential before discovering a
+            // peer-requested exit. Old servers simply lack this optional route.
+            app.auto.stopFolder(id)
+            val exit = connection.exit(folder, app.store.token(id), "exit_status")
+            if (exit?.optBoolean("requested") == true) {
+                app.exit.run(id)
+                return info
+            }
+        }
         if (info?.optString("state") == "disconnected") app.auto.stopFolder(id)
         info?.let { app.store.pairingResult(id, it.getString("state"), it.optString("verification").takeIf { value -> value != "null" && value.isNotBlank() }) }
         return info

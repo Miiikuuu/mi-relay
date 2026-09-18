@@ -1,0 +1,74 @@
+{
+  "date": "2026-09-15",
+  "status": "android_appearance_and_transfer_layout_selected_regressions_passed",
+  "base_commit": "fb539cf65cea6e978baf0ad0d0157660954fefe7",
+  "dirty_worktree": true,
+  "scope": "Android native presentation and local appearance preferences; no transport, Folder schema, credential, Auto scheduling, production or release-signing changes.",
+  "unit_tests": { "passed": 100, "skipped": 1, "failures": 0, "errors": 0, "skip_reason": "External Linux QR fixture not supplied" },
+  "lint": { "errors": 0, "warnings": 16 },
+  "apk": {
+    "sha256": "1149cc41f9ff0d39c1b685b752c20b97e91a834e45f5cc991fdb309e7f878a36",
+    "certificate_sha256": "cd032d879b4ee4dda9c8cfc73742eb8417993e97cf141de1832a752aec3e84a1",
+    "package": "io.mirelay.android",
+    "debug": true,
+    "signature_valid": true,
+    "zip_aligned_16k": true,
+    "native_load_alignment_16k": true
+  },
+  "device": {
+    "avd": "MiRelay_API36_QA",
+    "serial": "emulator-5580",
+    "api": 36,
+    "abi": "x86_64",
+    "page_size": 4096,
+    "graphics": "SwiftShader",
+    "resolution": "720x1280",
+    "instrumented_tests_passed": 26,
+    "instrumented_failures": 0,
+    "test_breakdown": { "appearance_real_frame": 1, "ui": 11, "runtime": 14 },
+    "fatal_or_mirelay_anr_markers_in_captured_logcat": 0,
+    "report": "android/.local/device-qa-cy197nhk/results.json",
+    "report_sha256": "86abfe78bf2024739e1bffd89b9c024b802df0cc27cc05c144939ef46811ad8d",
+    "stopped_after_testing": true,
+    "usb_phone_touched": false
+  },
+  "delivery": {
+    "route": "Android QA AVD -> isolated loopback server -> local Linux receiver",
+    "legacy_delivery_count": 1,
+    "exact_bytes_and_hash": true,
+    "all_acknowledged": true,
+    "paired_delivery_count": 0,
+    "synchronized_directory_paths": 0
+  },
+  "motion": {
+    "default": "off",
+    "implementation_redraw_cap_hz": 30,
+    "moving_pixel_check": "passed: more than 20 sparse samples changed",
+    "system_animation_disable_check": "passed: zero changed sparse samples across 1.3 seconds",
+    "user_disable_check": "passed: zero changed sparse samples across 1.3 seconds",
+    "physical_power_profiled": false,
+    "physical_gpu_profiled": false
+  },
+  "evidence": [
+    { "path": "target/ci-reports/ui-v2-mobile-acceptance-build-0915/result.json", "sha256": "90ced25921b57c1aba33d97107e27e2ea4b15bc02eac6a7717d86ab2e60efe05", "exit_code": 0 },
+    { "path": "target/ci-reports/ui-v2-mobile-acceptance-device-0915/result.json", "sha256": "d22c506a8399a6d72eac2114d7350ecf8cc8f581cd3ddef039b992e4fab8b67f", "exit_code": 0 }
+  ],
+  "reviewed_screenshots": [
+    { "path": "android/.local/device-qa-cy197nhk/visual/global-appearance.png", "sha256": "cd86c8aa516d4dff87406c30edca65e55985960287b20c9221dfb62b9738d81e" },
+    { "path": "android/.local/device-qa-cy197nhk/visual/album-frosted-scroll.png", "sha256": "7c23ecb45c852b46631f28e79c527056d7644425b7b0ca896ebde558d5360f45" }
+  ],
+  "failed_attempts_retained": [
+    "ui-v2-mobile-emulator-0915: network preflight failed; no new APK installed",
+    "ui-v2-mobile-emulator-retry-0915: network preflight failed; no new APK installed",
+    "ui-v2-mobile-emulator-direct-0915: clearing runtime proxy did not fix preflight; clean-environment emulator restart did",
+    "ui-v2-mobile-emulator-clean-proxy-0915: one ambiguous Settings test selector failed; dedicated tag added and final suite passed"
+  ],
+  "limitations": [
+    "Selected emulator regressions, not the complete device suite or physical-phone acceptance",
+    "No new physical GPU, battery, background lifecycle or low-memory device benchmark",
+    "Reduced-transparency screenshot caught platform dialog fade; semantic fallback assertions passed but that image is not pixel-level acceptance",
+    "Pairing, directory synchronization and Auto process-kill recovery not rerun in this slice",
+    "Linux motion/global settings, narrow sidebar collapse and remaining mobile refinements still pending",
+    "No USB installation, production deployment, release signing, commit or push"
+  ]
+}
